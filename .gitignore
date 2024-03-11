@@ -2,6 +2,7 @@ data/
 outputs/
 multirun/
 */*.mp4
+.idea/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
