@@ -131,7 +131,7 @@ class ConvolutionalAutoencoder(nn.Module):
             self.output = nn.Sequential(
                 weight_norm(nn.Conv2d(in_channels=channels[0], 
                                       out_channels=input_channels, 
-                                      kernel_size=1, stride=1, 
+                                      kernel_size=1, stride=1,
                                       padding=0))
             )
         else:
