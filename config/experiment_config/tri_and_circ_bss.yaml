@@ -17,19 +17,20 @@ use_weight_norm: true
 z_decay: 1e-2
 
 # model parameters
-channels: [24, 48, 96, 144]
+#channels: [24, 48, 96, 144]
+channels: [16, 32, 64, 128, 256]
 num_encoders: 3
 hidden: 96
-norm_type: group_norm
+norm_type: batch_norm
 
 # training params
 max_epochs: 100
-batch_size: 256
+batch_size: 512
 
 # data params
 dataloader: [utils.dataloader.triangles_circles, DataModule]
 data_path: data/single_channel_nonlinear_mixing_tri_circ.pickle
-num_workers: 4
+num_workers: 8
 image_hw: 64
 input_channels: 1
 
