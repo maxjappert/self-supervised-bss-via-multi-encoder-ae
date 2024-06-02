@@ -126,7 +126,7 @@ def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, 
     return loss
 
 
-def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=512, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=300, name=None):
+def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=512, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=300, name=None, verbose=True):
     model.to(device)
 
     train_loader, val_loader = get_split_dataloaders(dataset_trainval)
@@ -137,8 +137,10 @@ def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=512, dat
     recon_loss = nn.BCEWithLogitsLoss()
     sep_loss = WeightSeparationLoss(model.num_encoders, sep_norm)
 
+    train_losses = []
+    val_losses = []
     for epoch in range(max_epochs):
-        model.train()
+        model.train()        
         train_loss = 0.0
         for data in train_loader:
             x = data[0].to(device)
@@ -158,7 +160,10 @@ def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=512, dat
         scheduler.step()
 
         train_loss /= len(train_loader.dataset)
-        print(f'Epoch {epoch + 1}/{max_epochs}, Train Loss: {train_loss:.4f}')
+        train_losses.append(train_loss)
+
+        if verbose:
+            print(f'Epoch {epoch + 1}/{max_epochs}, Train Loss: {train_loss:.4f}')
 
         # Validation loop
         model.eval()
@@ -174,12 +179,15 @@ def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=512, dat
                 val_loss += loss.item() * x.size(0)
 
         val_loss /= len(val_loader.dataset)
-        print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
+        val_losses.append(val_loss)
+
+        if verbose:
+            print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
 
     if name:
         torch.save(model.state_dict(), f"{name}.pth")
 
-    return model
+    return model, train_losses, val_losses
 
 
 def test(model: ConvolutionalAutoencoder, dataset_test):
