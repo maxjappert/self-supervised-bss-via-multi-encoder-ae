@@ -1,3 +1,5 @@
+import json
+import math
 import pickle
 import random
 
@@ -118,7 +120,33 @@ def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, 
     return loss
 
 
-def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=1024, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True):
+def export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm):
+    variables = {
+        'name': name,
+        'channels': channels,
+        'hidden': hidden,
+        'num_encoders': num_encoders,
+        'norm_type': norm_type,
+        'use_weight_norm': use_weight_norm
+    }
+
+    with open(f'{name}.json', 'w') as file:
+        json.dump(variables, file)
+
+
+def get_hyperparameters_from_file(filename):
+    with open(filename, 'r') as file:
+        loaded_variables = json.load(file)
+
+    return loaded_variables
+
+
+def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144], hidden=96,
+                 num_encoders=2, norm_type='group_norm',
+                 use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True, visualise=False):
+    model = get_model(channels=channels, hidden=hidden,
+                 num_encoders=num_encoders, norm_type=norm_type,
+                 use_weight_norm=use_weight_norm)
     model.to(device)
 
     train_loader, val_loader = get_split_dataloaders(dataset_trainval, batch_size=batch_size)
@@ -129,8 +157,12 @@ def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=1024, da
     recon_loss = nn.BCEWithLogitsLoss()
     sep_loss = WeightSeparationLoss(model.num_encoders, sep_norm)
 
+    if name:
+        export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm)
+
     train_losses = []
     val_losses = []
+    best_val_loss = math.inf
     for epoch in range(max_epochs):
         model.train()        
         train_loss = 0.0
@@ -173,13 +205,16 @@ def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=1024, da
         val_loss /= len(val_loader.dataset)
         val_losses.append(val_loss)
 
-        test_loss = test(model, dataset_trainval, visualise=False, name=str(epoch))
+        if val_loss < best_val_loss and name:
+            torch.save(model.state_dict(), f"{name}_best.pth")
+
+        test_loss = test(model, dataset_trainval, visualise=visualise, name=str(epoch))
 
         if verbose:
             print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}, Test loss: {np.round(test_loss, 4)}')
 
     if name:
-        torch.save(model.state_dict(), f"{name}.pth")
+        torch.save(model.state_dict(), f"{name}_final.pth")
 
     return model, train_losses, val_losses
 

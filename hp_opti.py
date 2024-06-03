@@ -13,21 +13,18 @@ def objective(trial):
     sep_lr = trial.suggest_loguniform('sep_lr', 1e-10, 1.0)
     zero_lr = trial.suggest_loguniform('zero_lr', 1e-10, 1.0)
     hidden = trial.suggest_int('hidden', 16, 4096, step=16)
-    channel_index = trial.suggest_int('channel_index', 0, len(channel_options), step=1)
+    channel_index = trial.suggest_int('channel_index', 0, len(channel_options)-1, step=1)
     sep_norm = trial.suggest_categorical('sep_norm', ['L1', 'L2'])
     norm_type = trial.suggest_categorical('norm_type', ['none', 'batch_norm', 'group_norm'])
 
     channels = channel_options[channel_index]
-
-    # Initialize model
-    model = get_model(input_channels=1, image_hw=64, channels=channels, hidden=hidden, norm_type=norm_type, num_encoders=2)
 
     # Load dataset
     dataset_trainval = CircleTriangleDataset()
 
     # Train model
     model, train_losses, val_losses = train(
-        model=model,
+        channels=channels, hidden=hidden, norm_type=norm_type, num_encoders=2,
         dataset_trainval=dataset_trainval,
         dataset_split_ratio=0.8,
         batch_size=512,
@@ -39,15 +36,15 @@ def objective(trial):
         lr_gamma=0.1,
         weight_decay=weight_decay,
         z_decay=z_decay,
-        max_epochs=60,
+        max_epochs=20,
 
         verbose=False
     )
 
     # TODO: Split dataset into trainval and test
-    test_loss = test(model, dataset_trainval, visualise=False)
+    #test_loss = test(model, dataset_trainval, visualise=False)
     # Return the best validation loss
-    return test_loss
+    return min(val_losses)  # test_loss
 
 
 # Set up the Optuna study
@@ -56,3 +53,5 @@ study.optimize(objective, n_trials=20)
 
 # Print the best hyperparameters
 print("Best hyperparameters: ", study.best_params)
+
+
