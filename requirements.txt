@@ -152,3 +152,5 @@ webencodings==0.5.1
 websocket-client==1.6.4
 Werkzeug==3.0.1
 yarl==1.9.4
+
+optuna~=3.6.1

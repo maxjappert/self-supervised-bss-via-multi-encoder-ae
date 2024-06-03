@@ -59,7 +59,7 @@ class DecoderBlock(nn.Module):
             self.block.append(nn.GroupNorm(num_encoders, out_channels))
         elif norm_type == 'layer_norm':
             down_sample = (num_channels-2) - c_i
-            self.block.append(nn.LayerNorm([out_channels, image_hw//(2**down_sample), image_hw//(2**down_sample)]))
+            self.block.append(nn.LayerNorm([out_channels, int(image_hw//(2**down_sample)), int(image_hw//(2**down_sample))]))
         elif norm_type == 'instance_norm':
             self.block.append(nn.InstanceNorm2d(out_channels))
         
@@ -86,7 +86,7 @@ class ConvolutionalDecoder(nn.Module):
         elif norm_type == 'group_norm':
             self.decoder.append(nn.GroupNorm(num_encoders, channels[-1]))
         elif norm_type == 'layer_norm':
-            down_sample = (channels[-1]-2) - c_i
+            down_sample = (channels[-1]-2) - 0
             self.decoder.append(nn.LayerNorm([channels[-1], image_hw//(2**down_sample), image_hw//(2**down_sample)]))
         elif norm_type == 'instance_norm':
             self.decoder.append(nn.InstanceNorm2d(channels[-1]))

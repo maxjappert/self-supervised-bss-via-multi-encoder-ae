@@ -1,4 +1,5 @@
 import pickle
+import random
 
 import numpy as np
 import torch
@@ -23,16 +24,7 @@ class CircleTriangleDataset(Dataset):
             transform (callable, optional): Optional transform to be applied on a sample.
         """
         with open('data/single_channel_nonlinear_mixing_tri_circ.pickle', 'rb') as f:
-            print('before extraction')
             self.data = pickle.load(f, encoding='latin1')
-            print('after extraction')
-
-
-        #self.data = []
-        #for i in range(og_data.shape[0]):
-        #    self.data.append(og_data[i])
-#
-        #self.transform = transform
 
     def __len__(self):
         return len(self.data)
@@ -51,13 +43,13 @@ class CircleTriangleDataset(Dataset):
 
         return x.permute(2, 0, 1), c.permute(2, 0, 1), t.permute(2, 0, 1)
 
-def get_model(input_channels=1, image_hw=64, channels=[32, 64, 128], hidden=512,
-                 num_encoders=2, norm_type='none',
+def get_model(input_channels=1, image_hw=64, channels=[24, 48, 96, 144], hidden=96,
+                 num_encoders=2, norm_type='group_norm',
                  use_weight_norm=True):
     return ConvolutionalAutoencoder(input_channels, image_hw, channels, hidden, num_encoders, norm_type, use_weight_norm)
 
 
-def get_split_dataloaders(dataset, split_ratio=0.8, batch_size=512, num_workers=12):
+def get_split_dataloaders(dataset, split_ratio=0.8, batch_size=1024, num_workers=12):
     # Assuming `dataset` is your PyTorch Dataset
     dataset_size = len(dataset)
     indices = list(range(dataset_size))
@@ -74,13 +66,13 @@ def get_split_dataloaders(dataset, split_ratio=0.8, batch_size=512, num_workers=
     val_sampler = SubsetRandomSampler(val_indices)
 
     # Create DataLoaders
-    train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler)
-    val_loader = DataLoader(dataset, batch_size=batch_size, sampler=val_sampler)
+    train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, num_workers=num_workers)
+    val_loader = DataLoader(dataset, batch_size=batch_size, sampler=val_sampler, num_workers=num_workers)
 
     return train_loader, val_loader
 
 
-def visualise_circle_triangle_predictions(sample, circle, triangle, x_pred, x_i_preds: list):
+def visualise_circle_triangle_predictions(sample, circle, triangle, x_pred, x_i_preds: list, name='test'):
     fig = plt.figure(figsize=(6, 6))
     grid = ImageGrid(fig, 111,
                     nrows_ncols=(2, 4),
@@ -102,7 +94,7 @@ def visualise_circle_triangle_predictions(sample, circle, triangle, x_pred, x_i_
             ax.set_yticks([])
             ax.imshow(im, cmap='gray')
 
-    plt.savefig('test.png')
+    plt.savefig(f'{name}.png')
     plt.show()
 
 def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, sep_lr):
@@ -126,10 +118,10 @@ def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, 
     return loss
 
 
-def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=512, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=300, name=None, verbose=True):
+def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=1024, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True):
     model.to(device)
 
-    train_loader, val_loader = get_split_dataloaders(dataset_trainval)
+    train_loader, val_loader = get_split_dataloaders(dataset_trainval, batch_size=batch_size)
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
@@ -181,8 +173,10 @@ def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=512, dat
         val_loss /= len(val_loader.dataset)
         val_losses.append(val_loss)
 
+        test_loss = test(model, dataset_trainval, visualise=False, name=str(epoch))
+
         if verbose:
-            print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
+            print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}, Test loss: {np.round(test_loss, 4)}')
 
     if name:
         torch.save(model.state_dict(), f"{name}.pth")
@@ -190,8 +184,9 @@ def train(model: ConvolutionalAutoencoder, dataset_trainval, batch_size=512, dat
     return model, train_losses, val_losses
 
 
-def test(model: ConvolutionalAutoencoder, dataset_test):
-    sample, circle, triangle = dataset_test[0]
+def test(model: ConvolutionalAutoencoder, dataset_test, visualise=True, name='test'):
+    # Sample random value from test set
+    sample, circle, triangle = dataset_test[random.randint(0, len(dataset_test)-1)]
 
     x = torch.tensor(sample, dtype=torch.float32).unsqueeze(0).to(device)
     x_pred, _ = model(x)
@@ -215,4 +210,19 @@ def test(model: ConvolutionalAutoencoder, dataset_test):
             x_i_pred = torch.sigmoid(y_i_pred).squeeze().detach().cpu().numpy()
             x_i_preds.append(x_i_pred)
 
-        visualise_circle_triangle_predictions(sample.squeeze(), circle.squeeze(), triangle.squeeze(), x_pred, x_i_preds)
+        if visualise:
+            visualise_circle_triangle_predictions(sample.squeeze(), circle.squeeze(), triangle.squeeze(), x_pred, x_i_preds, name=name)
+
+        prediction_error = 0
+
+        # For each encoder prediction we compute
+        gts = [circle, triangle]
+        for pred in x_i_preds:
+            mses = []
+
+            for gt in gts + [torch.zeros_like(circle)]:
+                mses.append(np.mean((gt.numpy() - pred) ** 2))
+
+            prediction_error += np.min(mses)
+
+    return prediction_error

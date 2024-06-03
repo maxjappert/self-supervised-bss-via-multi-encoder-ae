@@ -13,6 +13,7 @@ from utils.plots import plot_grid
 
 from models.separation_loss import WeightSeparationLoss
 
+
 class Experiment(pl.LightningModule):
     def __init__(self, config, x_plot=None):
         super().__init__()
@@ -57,14 +58,14 @@ class Experiment(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         optimizer = self.optimizers()
-        
+
         x, c, t = batch
 
         x_pred, z = self.model(x)
         recon_loss = self.loss(x_pred, x)
         self.log(f'recon_loss/train', recon_loss, on_step=True, 
                                     on_epoch=True, prog_bar=True)
-        
+
         loss = recon_loss
         for z_i in z:
             loss = loss + self.z_decay * torch.mean(z_i**2)
@@ -91,7 +92,7 @@ class Experiment(pl.LightningModule):
 
         if batch_idx % 50 == 0:
             plot = plot_grid(x, x_pred)
-            self.logger.experiment.add_image('images/train_plot', plot, batch_idx)
+            #self.logger.experiment.add_image('images/train_plot', plot, batch_idx)
         
         if batch_idx % self.plot_step == 0 and self.save_plots:
             self.save_inference_samples(self.x_plot)
@@ -108,7 +109,7 @@ class Experiment(pl.LightningModule):
                                 on_epoch=True, prog_bar=True)
         if batch_idx % 50 == 0:
             plot = plot_grid(x, x_pred)
-            self.logger.experiment.add_image('images/val_plot', plot, batch_idx)
+            #self.logger.experiment.add_image('images/val_plot', plot, batch_idx)
         
         return recon_loss
     
