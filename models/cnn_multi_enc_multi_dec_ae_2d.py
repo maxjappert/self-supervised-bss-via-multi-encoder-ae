@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 
 from torch.nn.utils import weight_norm
 
@@ -46,6 +47,10 @@ class DecoderBlock(nn.Module):
                  norm_type, num_encoders, num_channels, image_hw,
                  kernel_size=7, stride=1, padding=3,):
         super(DecoderBlock, self).__init__()
+
+        in_channels = in_channels# // num_encoders
+        out_channels = out_channels# // num_encoders
+
         self.block = nn.Sequential()
         self.block.append(nn.Upsample(scale_factor=2, mode='nearest'))
         self.block.append(nn.ConvTranspose2d(in_channels=in_channels, 
@@ -78,7 +83,7 @@ class ConvolutionalDecoder(nn.Module):
         
         # create convolutional decoder
         self.decoder = nn.Sequential()
-        self.decoder.append(nn.Conv2d(hidden, channels[-1], kernel_size=1, 
+        self.decoder.append(nn.Conv2d(hidden, channels[-1], kernel_size=1,
                             stride=1, padding=0))
         self.decoder.append(nn.ReLU(inplace=True))
         if norm_type == 'batch_norm':
@@ -96,23 +101,24 @@ class ConvolutionalDecoder(nn.Module):
                                              image_hw))
         
     def forward(self, z):
-        z = torch.concatenate(z, dim=1)
+        #z = torch.concatenate(z, dim=1)
         y = self.decoder(z)
 
         return y
             
 
-class ConvolutionalAutoencoder(nn.Module):
+class LinearConvolutionalAutoencoder(nn.Module):
     def __init__(self, input_channels=3, image_hw=64, 
                  channels=[32, 64, 128], hidden=512, 
                  num_encoders=4, norm_type='none',
-                 use_weight_norm=True):
-        super(ConvolutionalAutoencoder, self).__init__()
+                 use_weight_norm=True, return_sum=True):
+        super(LinearConvolutionalAutoencoder, self).__init__()
         self.image_hw = image_hw
         self.input_channels = input_channels
         self.channels = channels
         self.hidden = hidden
         self.num_encoders = num_encoders
+        self.return_sum = return_sum
         
         # encoder layers
         enc_channels = [c//num_encoders for c in channels]
@@ -126,7 +132,7 @@ class ConvolutionalAutoencoder(nn.Module):
         for _ in range(num_encoders):
             self.decoders.append(ConvolutionalDecoder(image_hw=image_hw,
                                             channels=[channels[0]] + channels,
-                                            hidden=hidden, num_encoders=num_encoders,
+                                            hidden=hidden//num_encoders, num_encoders=num_encoders,
                                             norm_type=norm_type))
 
 
@@ -177,8 +183,7 @@ class ConvolutionalAutoencoder(nn.Module):
                     m.bias.requires_grad_(True)
                     m.train()
 
-        # TODO: Correct dimension?
-        return torch.cat(ys, dim=1)
+        return sum(ys) if self.return_sum else ys
     
     def forward(self, x):
         z = self.encode(x)

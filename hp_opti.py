@@ -36,15 +36,15 @@ def objective(trial):
         lr_gamma=0.1,
         weight_decay=weight_decay,
         z_decay=z_decay,
-        max_epochs=20,
+        max_epochs=50,
 
         verbose=False
     )
 
     # TODO: Split dataset into trainval and test
-    #test_loss = test(model, dataset_trainval, visualise=False)
+    test_loss = test(model, dataset_trainval, visualise=False)
     # Return the best validation loss
-    return min(val_losses)  # test_loss
+    return test_loss
 
 
 # Set up the Optuna study
