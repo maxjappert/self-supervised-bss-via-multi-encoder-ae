@@ -18,6 +18,8 @@ from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 from models.cnn_multi_enc_multi_dec_ae_2d import LinearConvolutionalAutoencoder
 from models.separation_loss import WeightSeparationLoss
 
+from skimage.metrics import structural_similarity as ssim
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class CircleTriangleDataset(Dataset):
@@ -152,9 +154,9 @@ def get_hyperparameters_from_file(filename):
     return loaded_variables
 
 
-def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144], hidden=96,
+def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144, 196], hidden=96,
                  num_encoders=2, norm_type='group_norm',
-                 use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True, visualise=False, linear=False):
+                 use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True, visualise=False, linear=False, test_save_step=1):
 
     if linear:
         model = get_linear_model(channels=channels, hidden=hidden,
@@ -225,10 +227,11 @@ def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144], hidden=
         if val_loss < best_val_loss and name:
             torch.save(model.state_dict(), f"{name}_best.pth")
 
-        test_loss = test(model, dataset_trainval, visualise=visualise, name=str(epoch))
+        test_loss = test(model, dataset_trainval, visualise=visualise if epoch % test_save_step == 0 else False,
+                         name=str(epoch+1), num_samples=1)
 
         if verbose:
-            print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}, Test loss: {np.round(test_loss, 4)}')
+            print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}, Score: {np.round(test_loss, 4)}')
 
     if name:
         torch.save(model.state_dict(), f"{name}_final.pth")
@@ -236,15 +239,17 @@ def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144], hidden=
     return model, train_losses, val_losses
 
 
-class SeparationLoss(nn.Module):
-    def __init__(self):
-        super(SeparationLoss, self).__init__()
+def evaluate_separation_ability(approxs, gts):
+    matrix = np.empty([len(gts), len(approxs)])
 
+    for i, approx in enumerate(gts):
+        for j, gt in enumerate(approxs):
+            if i != j:
+                matrix[i, j] = ssim(approx, gt, data_range=gt.max() - gt.min())
+            else:
+                matrix[i, j] = -1
 
-    def forward(self, output, targets):
-
-        loss =  ...# define your custom loss calculation here
-        return loss
+    return sum(np.max(matrix, axis=0)) / len(approxs)
 
 
 def visualise_linear(model: LinearConvolutionalAutoencoder, dataset_test, visualise=True, name='test', num_samples=100):
@@ -264,9 +269,9 @@ def visualise_linear(model: LinearConvolutionalAutoencoder, dataset_test, visual
 
 
 def test(model, dataset_test, visualise=True, name='test', num_samples=100):
-    total_prediction_error = 0
+    total_prediction_accuracy = 0
 
-    for _ in range(num_samples):
+    for i in range(num_samples):
         # Sample random value from test set
         sample, circle, triangle = dataset_test[random.randint(0, len(dataset_test)-1)]
 
@@ -292,22 +297,10 @@ def test(model, dataset_test, visualise=True, name='test', num_samples=100):
                 x_i_pred = torch.sigmoid(y_i_pred).squeeze().detach().cpu().numpy()
                 x_i_preds.append(x_i_pred)
 
-            if visualise:
+            if visualise and i == 0:
                 visualise_circle_triangle_predictions(sample.squeeze(), circle.squeeze(), triangle.squeeze(), x_pred, x_i_preds, name=name)
+                print(f'{name}.png saved')
 
-            prediction_error = 0
+        total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [circle.squeeze().numpy(), triangle.squeeze().numpy(), np.zeros_like(triangle.squeeze().numpy())])
 
-            # For each encoder prediction we compute
-            gts = [circle, triangle]
-            for pred in x_i_preds:
-                mses = []
-
-                for gt in gts:  # + [torch.zeros_like(circle)]:
-                    mses.append(np.mean((gt.numpy() - pred) ** 2))
-
-                prediction_error += np.min(mses)
-                mses.remove(mses[np.argmax(mses)])
-
-        total_prediction_error += prediction_error
-
-    return total_prediction_error / num_samples
+    return total_prediction_accuracy / num_samples
