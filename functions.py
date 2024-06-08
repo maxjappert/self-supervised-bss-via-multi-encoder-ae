@@ -49,6 +49,46 @@ class CircleTriangleDataset(Dataset):
 
         return x.permute(2, 0, 1), c.permute(2, 0, 1), t.permute(2, 0, 1)
 
+class SlakhDataset(Dataset):
+    def __init__(self, split, num_sources):
+        """
+        Args:
+            pickle_file_path (string): Path to the pickle file with the dataset.
+            transform (callable, optional): Optional transform to be applied on a sample.
+        """
+        with open(f'data/slakh_{split}{num_sources}.pkl', 'rb') as f:
+            self.data = pickle.load(f)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+
+        return self.data[idx]
+
+
+class RochesterDataset(Dataset):
+    def __init__(self, transform=None):
+        with open('data/single_channel_nonlinear_mixing_tri_circ.pickle', 'rb') as f:
+            self.data = pickle.load(f, encoding='latin1')
+
+    def __len__(self):
+        return len(self.data)
+
+
+    def min_max(self, x):
+        return (x - np.min(x)) / (np.max(x) - np.min(x))
+
+
+    def __getitem__(self, idx):
+        x, c, t = self.data[idx]
+        x, c, t = self.min_max(x), self.min_max(c), self.min_max(t)
+        x = torch.tensor(x, dtype=torch.float32)
+        c = torch.tensor(c, dtype=torch.float32)
+        t = torch.tensor(t, dtype=torch.float32)
+
+        return x.permute(2, 0, 1), c.permute(2, 0, 1), t.permute(2, 0, 1)
+
 
 def get_model(input_channels=1, image_hw=64, channels=[24, 48, 96, 144], hidden=96,
                  num_encoders=2, norm_type='group_norm',
