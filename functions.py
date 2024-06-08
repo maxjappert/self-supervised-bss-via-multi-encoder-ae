@@ -156,7 +156,7 @@ def get_hyperparameters_from_file(filename):
 
 def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144, 196], hidden=96,
                  num_encoders=2, norm_type='group_norm',
-                 use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True, visualise=False, linear=False, test_save_step=1):
+                 use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True, visualise=False, linear=False, test_save_step=1, num_workers=12):
 
     if linear:
         model = get_linear_model(channels=channels, hidden=hidden,
@@ -168,7 +168,7 @@ def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144, 196], hi
                  use_weight_norm=use_weight_norm)
     model.to(device)
 
-    train_loader, val_loader = get_split_dataloaders(dataset_trainval, batch_size=batch_size)
+    train_loader, val_loader = get_split_dataloaders(dataset_trainval, batch_size=batch_size, num_workers=num_workers)
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
@@ -245,7 +245,7 @@ def evaluate_separation_ability(approxs, gts):
     for i, approx in enumerate(gts):
         for j, gt in enumerate(approxs):
             if i != j:
-                matrix[i, j] = ssim(approx, gt, data_range=gt.max() - gt.min())
+                matrix[i, j] = ssim(approx, gt, data_range=approx.max() - approx.min())
             else:
                 matrix[i, j] = -1
 
@@ -271,7 +271,7 @@ def visualise_linear(model: LinearConvolutionalAutoencoder, dataset_test, visual
 def test(model, dataset_test, visualise=True, name='test', num_samples=100):
     total_prediction_accuracy = 0
 
-    for i in range(num_samples):
+    for sample_index in range(num_samples):
         # Sample random value from test set
         sample, circle, triangle = dataset_test[random.randint(0, len(dataset_test)-1)]
 
@@ -297,10 +297,13 @@ def test(model, dataset_test, visualise=True, name='test', num_samples=100):
                 x_i_pred = torch.sigmoid(y_i_pred).squeeze().detach().cpu().numpy()
                 x_i_preds.append(x_i_pred)
 
-            if visualise and i == 0:
+            if visualise and sample_index == 0:
                 visualise_circle_triangle_predictions(sample.squeeze(), circle.squeeze(), triangle.squeeze(), x_pred, x_i_preds, name=name)
                 print(f'{name}.png saved')
 
-        total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [circle.squeeze().numpy(), triangle.squeeze().numpy(), np.zeros_like(triangle.squeeze().numpy())])
+        total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [circle.squeeze().numpy(), triangle.squeeze().numpy()])
+
+    if total_prediction_accuracy / num_samples is math.nan:
+        print('here')
 
     return total_prediction_accuracy / num_samples
