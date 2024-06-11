@@ -154,3 +154,6 @@ Werkzeug==3.0.1
 yarl==1.9.4
 
 optuna~=3.6.1
+librosa~=0.10.2.post1
+pydub~=0.25.1
+scikit-image~=0.23.2

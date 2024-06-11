@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 from torch.nn.utils import weight_norm
+from torchvision import transforms
+
 
 class EncoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=7, stride=1, padding=3):
@@ -100,7 +102,7 @@ class ConvolutionalDecoder(nn.Module):
         z = torch.concatenate(z, dim=1)
         y = self.decoder(z)
 
-        return y
+        return transforms.Resize((1025, 216))(y)
             
 
 class ConvolutionalAutoencoder(nn.Module):

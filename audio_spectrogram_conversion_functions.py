@@ -32,7 +32,7 @@ def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
     if from_file:
         img = Image.open(spectrogram).convert('L')
         S_db_imported = np.array(img)
-        sr = np.load(sr).item()
+        #sr = np.load(sr).item()
     else:
         S_db_imported = spectrogram
 
@@ -49,5 +49,5 @@ def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
     scipy.io.wavfile.write(f'{output_filename}.wav', sr, np.array(audio_signal * 32767, dtype=np.int16))
 
 
-spectrogram, sr = audio_to_spectrogram('01_Jupiter_vn_vc/AuSep_1_vn_01_Jupiter.wav', save_to_file=True)
-spectrogram_to_audio('spectrogram_AuSep_1_vn_01_Jupiter.png', 'sr_AuSep_1_vn_01_Jupiter.npy', 'aaa', from_file=True)
+#spectrogram, sr = audio_to_spectrogram('01_Jupiter_vn_vc/AuSep_1_vn_01_Jupiter.wav', save_to_file=True)
+#spectrogram_to_audio('spectrogram_AuSep_1_vn_01_Jupiter.png', 'sr_AuSep_1_vn_01_Jupiter.npy', 'aaa', from_file=True)

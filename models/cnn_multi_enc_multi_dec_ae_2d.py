@@ -108,7 +108,7 @@ class ConvolutionalDecoder(nn.Module):
             
 
 class LinearConvolutionalAutoencoder(nn.Module):
-    def __init__(self, input_channels=3, image_hw=64, 
+    def __init__(self, input_channels=3, image_height=64, image_width=64,
                  channels=[32, 64, 128], hidden=512, 
                  num_encoders=4, norm_type='none',
                  use_weight_norm=True, return_sum=True):

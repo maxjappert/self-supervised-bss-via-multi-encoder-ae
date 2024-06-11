@@ -2,6 +2,11 @@ import json
 import math
 import pickle
 import random
+import sys
+
+import torchvision.transforms as transforms
+
+import torch.nn.functional as F
 
 import numpy as np
 import torch
@@ -12,7 +17,7 @@ from sklearn.model_selection import train_test_split
 from torch import optim, nn
 from torch.optim.lr_scheduler import StepLR
 
-from models.cnn_multi_enc_ae_2d import ConvolutionalAutoencoder
+from models.cnn_multi_enc_ae_2d_spectrograms import ConvolutionalAutoencoder
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 
 from models.cnn_multi_enc_multi_dec_ae_2d import LinearConvolutionalAutoencoder
@@ -56,14 +61,49 @@ class SlakhDataset(Dataset):
             pickle_file_path (string): Path to the pickle file with the dataset.
             transform (callable, optional): Optional transform to be applied on a sample.
         """
+
         with open(f'data/slakh_{split}{num_sources}.pkl', 'rb') as f:
-            self.data = pickle.load(f)
+            unnormalised_data = torch.tensor(pickle.load(f))
+
+        self.data = []
+
+        self.transform = transforms.Compose([
+            transforms.Resize((128, 128)),  # Resize the image to 128x128
+            transforms.ToTensor()
+        ])
+
+        for unnormalised_row in unnormalised_data:
+            if self.is_valid(unnormalised_row):
+                self.data.append(self.row_min_max(unnormalised_row))
+
+
+    def is_valid(self, row):
+        for i, x in enumerate(row):
+            if x is None or torch.allclose(torch.min(x), torch.max(x)):
+                return False
+
+        return True
 
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def row_min_max(self, row):
 
+        normalised_row = []
+
+        for x in row:
+            #x = x.unsqueeze(0)
+            #x = F.avg_pool2d(x, kernel_size=2)
+            #x = x.squeeze()
+            #print(x.shape)
+            #x = self.transform(x.numpy())
+            #x = F.avg_pool2d(x.unsqueeze(0).unsqueeze(0), kernel_size=(2, 2)).squeeze(0).squeeze(0)
+            S_db_normalized = (x - torch.min(x)) / (torch.max(x) - torch.min(x))
+            normalised_row.append(torch.tensor(S_db_normalized).unsqueeze(0))
+
+        return normalised_row
+
+    def __getitem__(self, idx):
         return self.data[idx]
 
 
@@ -90,16 +130,20 @@ class RochesterDataset(Dataset):
         return x.permute(2, 0, 1), c.permute(2, 0, 1), t.permute(2, 0, 1)
 
 
-def get_model(input_channels=1, image_hw=64, channels=[24, 48, 96, 144], hidden=96,
-                 num_encoders=2, norm_type='group_norm',
-                 use_weight_norm=True):
-    return ConvolutionalAutoencoder(input_channels, image_hw, channels, hidden, num_encoders, norm_type, use_weight_norm)
+def save_spectrogram_to_file(spectrogram, filename):
+    plt.imsave(filename, spectrogram, cmap='gray')
 
 
-def get_linear_model(input_channels=1, image_hw=64, channels=[24, 48, 96, 144], hidden=96,
+def get_model(input_channels=1, image_height=64, image_width=64, channels=[24, 48, 96, 144], hidden=96,
                  num_encoders=2, norm_type='group_norm',
                  use_weight_norm=True):
-    return LinearConvolutionalAutoencoder(input_channels, image_hw, channels, hidden, num_encoders, norm_type, use_weight_norm)
+    return ConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm)
+
+
+def get_linear_model(input_channels=1, image_height=64, image_width=64, channels=[24, 48, 96, 144], hidden=96,
+                 num_encoders=2, norm_type='group_norm',
+                 use_weight_norm=True):
+    return LinearConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm)
 
 
 def get_split_dataloaders(dataset, split_ratio=0.8, batch_size=1024, num_workers=12):
@@ -125,24 +169,30 @@ def get_split_dataloaders(dataset, split_ratio=0.8, batch_size=1024, num_workers
     return train_loader, val_loader
 
 
-def visualise_circle_triangle_predictions(sample, circle, triangle, x_pred, x_i_preds: list, name='test'):
-    fig = plt.figure(figsize=(6, 6))
+def visualise_predictions(x_gt, x_i_gts, x_pred, x_i_preds: list, name='test'):
+    assert len(x_i_preds) == len(x_i_gts)
+
+    num_sources = len(x_i_preds)
+
+    fig = plt.figure(figsize=(2*num_sources, 6))
     grid = ImageGrid(fig, 111,
-                    nrows_ncols=(2, 4),
+                    nrows_ncols=(2, 1 + num_sources),
                     axes_pad=0.15,
                     )
 
-    labels = ['Mixed', 'Circle', 'Triangle']
-    images = [sample, circle, triangle, None, x_pred] + x_i_preds
+    #labels = ['Mixed', 'Circle', 'Triangle']
+    #images = [sample, circle, triangle, None, x_pred] + x_i_preds
+    images = [x_gt] + x_i_gts + [x_pred] + x_i_preds
+    print(x_i_gts.__contains__(None))
     y_labels = ['True', 'Pred.']
     for i, (ax, im) in enumerate(zip(grid, images)):
         if i != 3:
-            if i < len(labels):
-                ax.set_title(labels[i])
-            if i % 4 == 0:
-                ax.set_ylabel(y_labels[(i)//4])
-            if i+1 == len(images):
-                ax.set_title('(Dead Enc.)', color='gray', fontsize=12)
+            #if i < num_sources + 1:
+            #    ax.set_title(labels[i])
+            #if i % 4 == 0:
+            #    ax.set_ylabel(y_labels[(i)//4])
+            #if i+1 == len(images):
+            #    ax.set_title('(Dead Enc.)', color='gray', fontsize=12)
             ax.set_xticks([])
             ax.set_yticks([])
             ax.imshow(im, cmap='gray')
@@ -194,8 +244,8 @@ def get_hyperparameters_from_file(filename):
     return loaded_variables
 
 
-def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144, 196], hidden=96,
-                 num_encoders=2, norm_type='group_norm',
+def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 196], hidden=96,
+                 num_encoders=2, norm_type='group_norm', image_height=64, image_width=64,
                  use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True, visualise=False, linear=False, test_save_step=1, num_workers=12):
 
     if linear:
@@ -205,10 +255,16 @@ def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144, 196], hi
     else:
         model = get_model(channels=channels, hidden=hidden,
                  num_encoders=num_encoders, norm_type=norm_type,
-                 use_weight_norm=use_weight_norm)
+                 use_weight_norm=use_weight_norm, image_height=image_height, image_width=image_width)
     model.to(device)
 
-    train_loader, val_loader = get_split_dataloaders(dataset_trainval, batch_size=batch_size, num_workers=num_workers)
+    if name:
+        export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm)
+
+    #train_loader, val_loader = get_split_dataloaders(dataset_trainval, batch_size=batch_size, num_workers=num_workers)
+
+    train_loader = DataLoader(dataset_train, batch_size=batch_size, num_workers=num_workers)
+    val_loader = DataLoader(dataset_val, batch_size=batch_size, num_workers=num_workers)
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
@@ -253,8 +309,8 @@ def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144, 196], hi
         val_loss = 0.0
         with torch.no_grad():
             for data in val_loader:
-                x, c, t = data
-                x = x.to(device)
+                #x, c, t = data
+                x = data[0].to(device)
                 x_pred, z = model(x)
 
                 loss = get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, sep_lr, linear=linear)
@@ -267,7 +323,7 @@ def train(dataset_trainval, batch_size=1024, channels=[24, 48, 96, 144, 196], hi
         if val_loss < best_val_loss and name:
             torch.save(model.state_dict(), f"{name}_best.pth")
 
-        test_loss = test(model, dataset_trainval, visualise=visualise if epoch % test_save_step == 0 else False,
+        test_loss = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
                          name=str(epoch+1), num_samples=1)
 
         if verbose:
@@ -302,22 +358,25 @@ def visualise_linear(model: LinearConvolutionalAutoencoder, dataset_test, visual
     for i in range(len(x_preds)):
         x_preds[i] = torch.sigmoid(x_preds[i]).squeeze().detach().cpu().numpy()
 
-    visualise_circle_triangle_predictions(sample.squeeze(), circle.squeeze(), triangle.squeeze(), sum(x_preds), x_preds,
-                                          name=name)
+    visualise_predictions(sample.squeeze(), circle.squeeze(), triangle.squeeze(), sum(x_preds), x_preds,
+                          name=name)
 
     model.return_sum = og_flag
 
 
-def test(model, dataset_test, visualise=True, name='test', num_samples=100):
+def test(model, dataset_test, visualise=True, name='test', num_samples=100, single_file=True):
     total_prediction_accuracy = 0
+    model.eval()
 
     for sample_index in range(num_samples):
         # Sample random value from test set
-        sample, circle, triangle = dataset_test[random.randint(0, len(dataset_test)-1)]
+        sample = dataset_test[random.randint(0, len(dataset_test)-1)]
 
-        x = torch.tensor(sample, dtype=torch.float32).unsqueeze(0).to(device)
+        x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
         x_pred, _ = model(x)
         x_pred = torch.sigmoid(x_pred).squeeze().detach().cpu().numpy()
+
+        save_spectrogram_to_file(x_pred, f'{name}_mix.png')
 
         with torch.no_grad():
             z = model.encode(x)
@@ -338,10 +397,14 @@ def test(model, dataset_test, visualise=True, name='test', num_samples=100):
                 x_i_preds.append(x_i_pred)
 
             if visualise and sample_index == 0:
-                visualise_circle_triangle_predictions(sample.squeeze(), circle.squeeze(), triangle.squeeze(), x_pred, x_i_preds, name=name)
-                print(f'{name}.png saved')
+                if single_file:
+                    visualise_predictions(sample[0].squeeze(), [x_i.squeeze() for x_i in sample[1:]], x_pred, x_i_preds, name=name)
+                    print(f'{name}.png saved')
+                else:
+                    for l, x_i_pred in enumerate(x_i_preds):
+                        save_spectrogram_to_file(x_i_pred, f'{name}_{l}.png')
 
-        total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [circle.squeeze().numpy(), triangle.squeeze().numpy()])
+        total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
 
     if total_prediction_accuracy / num_samples is math.nan:
         print('here')
