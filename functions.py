@@ -1,8 +1,11 @@
 import json
 import math
+import os
 import pickle
 import random
 import sys
+from PIL import Image
+from datetime import datetime
 
 import torchvision.transforms as transforms
 
@@ -54,6 +57,46 @@ class CircleTriangleDataset(Dataset):
 
         return x.permute(2, 0, 1), c.permute(2, 0, 1), t.permute(2, 0, 1)
 
+
+class SlakhTwoSourcesDataset(Dataset):
+    def __init__(self, split: str):
+        self.data_folder_names = []
+
+        self.master_path = os.path.join('data', 'slakh_two_sources_preprocessed', split)
+
+        self.transform = transforms.Compose([
+            transforms.Resize((128, 128)),  # Resize the image to 128x128
+            transforms.ToTensor()
+        ])
+
+        for data_folder in os.listdir(self.master_path):
+            self.data_folder_names.append(data_folder)
+
+    def __len__(self):
+        return len(self.data_folder_names)
+
+    def row_min_max(self, row):
+
+        normalised_row = []
+
+        for i, x in enumerate(row):
+            S_db_normalized = (x - np.min(x)) / ((np.max(x) - np.min(x)) + 1e-7)
+            normalised_row.append(torch.tensor(S_db_normalized).unsqueeze(0))
+
+        return normalised_row
+
+    def __getitem__(self, idx):
+
+        chunks_master = np.array(Image.open((os.path.join(self.master_path, self.data_folder_names[idx], 'mix.png'))), dtype=np.float32)
+        row = [chunks_master]
+
+        for stem in os.listdir(os.path.join(self.master_path, self.data_folder_names[idx], 'stems')):
+            stem_path = os.path.join(self.master_path, self.data_folder_names[idx], 'stems', stem)
+            row.append(np.array(Image.open(stem_path), dtype=np.float32))
+
+        return self.row_min_max(row)
+
+
 class SlakhDataset(Dataset):
     def __init__(self, split, num_sources):
         """
@@ -92,12 +135,6 @@ class SlakhDataset(Dataset):
         normalised_row = []
 
         for x in row:
-            #x = x.unsqueeze(0)
-            #x = F.avg_pool2d(x, kernel_size=2)
-            #x = x.squeeze()
-            #print(x.shape)
-            #x = self.transform(x.numpy())
-            #x = F.avg_pool2d(x.unsqueeze(0).unsqueeze(0), kernel_size=(2, 2)).squeeze(0).squeeze(0)
             S_db_normalized = (x - torch.min(x)) / (torch.max(x) - torch.min(x))
             normalised_row.append(torch.tensor(S_db_normalized).unsqueeze(0))
 
@@ -186,16 +223,15 @@ def visualise_predictions(x_gt, x_i_gts, x_pred, x_i_preds: list, name='test'):
     print(x_i_gts.__contains__(None))
     y_labels = ['True', 'Pred.']
     for i, (ax, im) in enumerate(zip(grid, images)):
-        if i != 3:
-            #if i < num_sources + 1:
-            #    ax.set_title(labels[i])
-            #if i % 4 == 0:
-            #    ax.set_ylabel(y_labels[(i)//4])
-            #if i+1 == len(images):
-            #    ax.set_title('(Dead Enc.)', color='gray', fontsize=12)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.imshow(im, cmap='gray')
+        #if i < num_sources + 1:
+        #    ax.set_title(labels[i])
+        #if i % 4 == 0:
+        #    ax.set_ylabel(y_labels[(i)//4])
+        #if i+1 == len(images):
+        #    ax.set_title('(Dead Enc.)', color='gray', fontsize=12)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.imshow(im, cmap='gray')
 
     plt.savefig(f'{name}.png')
     plt.show()
@@ -244,7 +280,7 @@ def get_hyperparameters_from_file(filename):
     return loaded_variables
 
 
-def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 196], hidden=96,
+def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 196], hidden=196,
                  num_encoders=2, norm_type='group_norm', image_height=64, image_width=64,
                  use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3, lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True, visualise=False, linear=False, test_save_step=1, num_workers=12):
 
@@ -302,7 +338,12 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         train_losses.append(train_loss)
 
         if verbose:
-            print(f'Epoch {epoch + 1}/{max_epochs}, Train Loss: {train_loss:.4f}')
+            # Get the current timestamp
+            now = datetime.now()
+
+            # Format the timestamp as a string
+            timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+            print(f'[{timestamp_str}]:  Epoch {epoch + 1}/{max_epochs}, Train Loss: {train_loss:.4f}')
 
         # Validation loop
         model.eval()
@@ -376,7 +417,7 @@ def test(model, dataset_test, visualise=True, name='test', num_samples=100, sing
         x_pred, _ = model(x)
         x_pred = torch.sigmoid(x_pred).squeeze().detach().cpu().numpy()
 
-        save_spectrogram_to_file(x_pred, f'{name}_mix.png')
+        #save_spectrogram_to_file(x_pred, f'{name}_mix.png')
 
         with torch.no_grad():
             z = model.encode(x)
@@ -401,8 +442,11 @@ def test(model, dataset_test, visualise=True, name='test', num_samples=100, sing
                     visualise_predictions(sample[0].squeeze(), [x_i.squeeze() for x_i in sample[1:]], x_pred, x_i_preds, name=name)
                     print(f'{name}.png saved')
                 else:
+                    save_spectrogram_to_file(x_pred, f'{name}_mix.png')
+                    save_spectrogram_to_file(sample[0].squeeze(), f'{name}_mix_gt.png')
                     for l, x_i_pred in enumerate(x_i_preds):
                         save_spectrogram_to_file(x_i_pred, f'{name}_{l}.png')
+                        save_spectrogram_to_file(sample[l+1].squeeze(), f'{name}_{l}_gt.png')
 
         total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
 
