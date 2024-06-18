@@ -173,8 +173,8 @@ def save_spectrogram_to_file(spectrogram, filename):
 
 def get_model(input_channels=1, image_height=64, image_width=64, channels=[24, 48, 96, 144], hidden=96,
                  num_encoders=2, norm_type='group_norm',
-                 use_weight_norm=True):
-    return ConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm)
+                 use_weight_norm=True, linear=False):
+    return LinearConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm) if linear else ConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm)
 
 
 def get_linear_model(input_channels=1, image_height=64, image_width=64, channels=[24, 48, 96, 144], hidden=96,
@@ -259,14 +259,15 @@ def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, 
     return loss
 
 
-def export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm):
+def export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm, linear):
     variables = {
         'name': name,
         'channels': channels,
         'hidden': hidden,
         'num_encoders': num_encoders,
         'norm_type': norm_type,
-        'use_weight_norm': use_weight_norm
+        'use_weight_norm': use_weight_norm,
+        'linear': linear
     }
 
     with open(f'{name}.json', 'w') as file:
@@ -295,7 +296,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     model.to(device)
 
     if name:
-        export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm)
+        export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm, linear)
 
     #train_loader, val_loader = get_split_dataloaders(dataset_trainval, batch_size=batch_size, num_workers=num_workers)
 
@@ -307,9 +308,6 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
     recon_loss = nn.BCEWithLogitsLoss()
     sep_loss = WeightSeparationLoss(model.num_encoders, sep_norm)
-
-    if name:
-        export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm)
 
     train_losses = []
     val_losses = []
@@ -405,8 +403,45 @@ def visualise_linear(model: LinearConvolutionalAutoencoder, dataset_test, visual
     model.return_sum = og_flag
 
 
-def test(model, dataset_test, visualise=True, name='test', num_samples=100, single_file=True):
+def get_linear_separation(model, sample):
+    with torch.no_grad():
+        x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
+
+        x_i_preds = []
+
+        for source_idx in range(model.num_encoders):
+            y_i_pred, z = model.forward_single_encoder(x, source_idx)
+            x_i_preds.append(torch.sigmoid(y_i_pred).squeeze().detach().cpu().numpy())
+
+    return x_i_preds
+
+
+def get_non_linear_separation(model, sample):
+    with torch.no_grad():
+        x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
+        z = model.encode(x)
+        masked_zs = []
+
+        for i in range(len(z)):
+            masked_zs.append([])
+            for j in range(len(z)):
+                masked_zs[i].append(z[j] if i == j else torch.zeros_like(z[j]))
+
+        x_i_preds = []
+        for i in range(len(z)):
+            y_i_pred = model.decode(masked_zs[i])
+            x_i_pred = torch.sigmoid(y_i_pred).squeeze().detach().cpu().numpy()
+            x_i_preds.append(x_i_pred)
+
+        return x_i_preds
+
+
+def test(model, dataset_test, visualise=True, name='test', num_samples=100, single_file=True, linear=False):
     total_prediction_accuracy = 0
+
+    if linear:
+        model.return_sum = False
+
     model.eval()
 
     for sample_index in range(num_samples):
@@ -419,34 +454,18 @@ def test(model, dataset_test, visualise=True, name='test', num_samples=100, sing
 
         #save_spectrogram_to_file(x_pred, f'{name}_mix.png')
 
-        with torch.no_grad():
-            z = model.encode(x)
+        x_i_preds = get_linear_separation(model, sample) if linear else get_non_linear_separation(model, sample)
 
-            masked_zs = []
-
-            assert model.num_encoders == len(z)
-
-            for i in range(len(z)):
-                masked_zs.append([])
-                for j in range(len(z)):
-                    masked_zs[i].append(z[j] if i == j else torch.zeros_like(z[j]))
-
-            x_i_preds = []
-            for i in range(len(z)):
-                y_i_pred = model.decode(masked_zs[i])
-                x_i_pred = torch.sigmoid(y_i_pred).squeeze().detach().cpu().numpy()
-                x_i_preds.append(x_i_pred)
-
-            if visualise and sample_index == 0:
-                if single_file:
-                    visualise_predictions(sample[0].squeeze(), [x_i.squeeze() for x_i in sample[1:]], x_pred, x_i_preds, name=name)
-                    print(f'{name}.png saved')
-                else:
-                    save_spectrogram_to_file(x_pred, f'{name}_mix.png')
-                    save_spectrogram_to_file(sample[0].squeeze(), f'{name}_mix_gt.png')
-                    for l, x_i_pred in enumerate(x_i_preds):
-                        save_spectrogram_to_file(x_i_pred, f'{name}_{l}.png')
-                        save_spectrogram_to_file(sample[l+1].squeeze(), f'{name}_{l}_gt.png')
+        if visualise and sample_index == 0:
+            if single_file:
+                visualise_predictions(sample[0].squeeze(), [x_i.squeeze() for x_i in sample[1:]], x_pred, x_i_preds, name=name)
+                print(f'{name}.png saved')
+            else:
+                save_spectrogram_to_file(x_pred, f'{name}_mix.png')
+                save_spectrogram_to_file(sample[0].squeeze(), f'{name}_mix_gt.png')
+                for l, x_i_pred in enumerate(x_i_preds):
+                    save_spectrogram_to_file(x_i_pred, f'{name}_{l}.png')
+                    save_spectrogram_to_file(sample[l+1].squeeze(), f'{name}_{l}_gt.png')
 
         total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
 

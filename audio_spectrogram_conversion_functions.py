@@ -8,8 +8,7 @@ from PIL import Image
 def audio_to_spectrogram(audio_file, save_to_file=False):
     # Load the audio file
     y, sr = librosa.load(audio_file)
-
-    name = audio_file.split('.')[-2].split('/')[-1]
+    name = audio_file.stem
 
     # Convert to spectrogram
     S = librosa.stft(y)
@@ -21,8 +20,8 @@ def audio_to_spectrogram(audio_file, save_to_file=False):
 
     # Save the spectrogram to a PNG file
     if save_to_file:
-        plt.imsave(f'spectrogram_{name}.png', S_db_normalized, cmap='gray')
-        np.save(f'sr_{name}.npy', sr)
+        plt.imsave(f'{audio_file.parent / f"spectrogram_{name}.png"}', S_db_normalized, cmap='gray')
+        np.save(f'{audio_file.parent / f"sr_{name}.npy"}', sr)
 
     return S_db_normalized, sr
 
