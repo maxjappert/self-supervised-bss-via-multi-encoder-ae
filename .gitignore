@@ -1,4 +1,3 @@
-data/
 outputs/
 multirun/
 */*.mp4
@@ -8,6 +7,11 @@ multirun/
 __pycache__/
 *.py[cod]
 *$py.class
+
+*.pkl
+*.pickle
+*.zip
+*.log
 
 # C extensions
 *.so
