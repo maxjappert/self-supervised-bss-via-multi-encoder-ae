@@ -58,16 +58,11 @@ class CircleTriangleDataset(Dataset):
         return x.permute(2, 0, 1), c.permute(2, 0, 1), t.permute(2, 0, 1)
 
 
-class SlakhTwoSourcesDataset(Dataset):
-    def __init__(self, split: str):
+class TwoSourcesDataset(Dataset):
+    def __init__(self, split: str, name='slakh_two_sources_preprocessed'):
         self.data_folder_names = []
 
-        self.master_path = os.path.join('data', 'slakh_two_sources_preprocessed', split)
-
-        self.transform = transforms.Compose([
-            transforms.Resize((128, 128)),  # Resize the image to 128x128
-            transforms.ToTensor()
-        ])
+        self.master_path = os.path.join('data', name, split)
 
         for data_folder in os.listdir(self.master_path):
             self.data_folder_names.append(data_folder)
@@ -87,12 +82,12 @@ class SlakhTwoSourcesDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        chunks_master = np.array(Image.open((os.path.join(self.master_path, self.data_folder_names[idx], 'mix.png'))), dtype=np.float32)
+        chunks_master = np.array(Image.open((os.path.join(self.master_path, self.data_folder_names[idx], 'mix.png'))).convert('L'), dtype=np.float32)
         row = [chunks_master]
 
         for stem in os.listdir(os.path.join(self.master_path, self.data_folder_names[idx], 'stems')):
             stem_path = os.path.join(self.master_path, self.data_folder_names[idx], 'stems', stem)
-            row.append(np.array(Image.open(stem_path), dtype=np.float32))
+            row.append(np.array(Image.open(stem_path).convert('L'), dtype=np.float32))
 
         return self.row_min_max(row)
 
