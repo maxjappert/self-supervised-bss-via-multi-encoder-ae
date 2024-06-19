@@ -370,16 +370,20 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
 
 def evaluate_separation_ability(approxs, gts):
-    matrix = np.empty([len(gts), len(approxs)])
+    def calculate_ssim(a, b):
+        return ssim(a, b, data_range=b.max() - b.min())
 
-    for i, approx in enumerate(gts):
-        for j, gt in enumerate(approxs):
-            if i != j:
-                matrix[i, j] = ssim(approx, gt, data_range=approx.max() - approx.min())
-            else:
-                matrix[i, j] = -1
+    scores = []
+    for gt in gts:
+        best_score = 0
+        for approx in approxs:
+            if np.any(approx):  # Ensure the approximation is not completely black
+                score = calculate_ssim(gt, approx)
+                if score > best_score:
+                    best_score = score
+        scores.append(best_score)
 
-    return sum(np.max(matrix, axis=0)) / len(approxs)
+    return np.mean(scores)
 
 
 def visualise_linear(model: LinearConvolutionalAutoencoder, dataset_test, visualise=True, name='test', num_samples=100):
@@ -431,17 +435,14 @@ def get_non_linear_separation(model, sample):
         return x_i_preds
 
 
-def test(model, dataset_test, visualise=True, name='test', num_samples=100, single_file=True, linear=False):
+def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False):
     total_prediction_accuracy = 0
-
-    if linear:
-        model.return_sum = False
 
     model.eval()
 
     for sample_index in range(num_samples):
         # Sample random value from test set
-        sample = dataset_test[random.randint(0, len(dataset_test)-1)]
+        sample = dataset_val[random.randint(0, len(dataset_val) - 1)]
 
         x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
         x_pred, _ = model(x)
