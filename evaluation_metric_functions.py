@@ -30,7 +30,7 @@ def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
     return avg_snr
 
 
-def compute_bss_metrics(reference_spectrograms, estimated_spectrograms, sr=22050, n_fft=2048,
+def compute_bss_metrics(reference_spectrogram, estimated_spectrogram, sr=22050, n_fft=2048,
                                           hop_length=512):
     """
     Compute BSS metrics (SDR, SIR, SAR, ISR) between the reference and estimated spectrograms.
@@ -46,18 +46,18 @@ def compute_bss_metrics(reference_spectrograms, estimated_spectrograms, sr=22050
     tuple: A tuple containing numpy arrays for SDR, SIR, SAR, and ISR for each source.
     """
     # Ensure the spectrograms are the same shape
-    assert reference_spectrograms.shape == estimated_spectrograms.shape, "Spectrograms must have the same shape"
+    assert reference_spectrogram.shape == estimated_spectrogram.shape, "Spectrograms must have the same shape"
 
-    num_sources, _, _ = reference_spectrograms.shape
+
+
+    #num_sources, _, _ = reference_spectrograms.shape
 
     # Convert spectrograms back to time-domain signals
-    reference_signals = np.array(
-        [librosa.istft(reference_spectrograms[i], hop_length=hop_length) for i in range(num_sources)])
-    estimated_signals = np.array(
-        [librosa.istft(estimated_spectrograms[i], hop_length=hop_length) for i in range(num_sources)])
+    reference_signal = librosa.istft(reference_spectrogram, hop_length=hop_length)
+    estimated_signal = librosa.istft(estimated_spectrogram, hop_length=hop_length)
 
     # Compute BSS metrics
-    sdr, sir, sar, isr = mir_eval.separation.bss_eval_sources(reference_signals, estimated_signals)
+    sdr, sir, sar, isr = mir_eval.separation.bss_eval_sources(reference_signal, estimated_signal)
     return sdr, sir, sar, isr
 
 
