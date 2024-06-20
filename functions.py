@@ -4,6 +4,9 @@ import os
 import pickle
 import random
 import sys
+
+import librosa
+import mir_eval
 from PIL import Image
 from datetime import datetime
 
@@ -20,13 +23,12 @@ from sklearn.model_selection import train_test_split
 from torch import optim, nn
 from torch.optim.lr_scheduler import StepLR
 
+from evaluation_metric_functions import calculate_ssim, compute_bss_metrics, compute_spectral_snr
 from models.cnn_multi_enc_ae_2d_spectrograms import ConvolutionalAutoencoder
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 
 from models.cnn_multi_enc_multi_dec_ae_2d import LinearConvolutionalAutoencoder
 from models.separation_loss import WeightSeparationLoss
-
-from skimage.metrics import structural_similarity as ssim
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -315,7 +317,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
     train_losses = []
     val_losses = []
-    best_val_loss = math.inf
+    best_sdr = -math.inf
     for epoch in range(max_epochs):
         model.train()        
         train_loss = 0.0
@@ -363,14 +365,16 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         val_loss /= len(val_loader.dataset)
         val_losses.append(val_loss)
 
-        if val_loss < best_val_loss and name:
-            torch.save(model.state_dict(), f"checkpoints/{name}_best.pth")
+        _, sdr, _, _, _ = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
+                         name=f'{str(epoch + 1)}_{name}', num_samples=10)
 
-        test_loss = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
-                         name=str(epoch+1), num_samples=1)
+        if sdr > best_sdr and name:
+            torch.save(model.state_dict(), f"checkpoints/{name}_best.pth")
+            best_sdr = sdr
 
         if verbose:
-            print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}, Score: {np.round(test_loss, 4)}')
+            print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
+            print(f'SDR: {sdr}')
 
     if name:
         torch.save(model.state_dict(), f"checkpoints/{name}_final.pth")
@@ -378,16 +382,14 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     return model, train_losses, val_losses
 
 
-def evaluate_separation_ability(approxs, gts):
-    def calculate_ssim(a, b):
-        return ssim(a, b, data_range=b.max() - b.min())
+def evaluate_separation_ability(approxs, gts, metric_function):
 
     scores = []
     for gt in gts:
         best_score = 0
         for approx in approxs:
             if np.any(approx):  # Ensure the approximation is not completely black
-                score = calculate_ssim(gt, approx)
+                score = metric_function(gt, approx)
                 if score > best_score:
                     best_score = score
         scores.append(best_score)
@@ -446,7 +448,12 @@ def get_non_linear_separation(model, sample):
 
 
 def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False):
-    total_prediction_accuracy = 0
+    ssim_sum = 0
+    sdr_sum = 0
+    snr_sum = 0
+    sir_sum = 0
+    sar_sum = 0
+    isr_sum = 0
 
     model.eval()
 
@@ -476,6 +483,12 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
                     save_spectrogram_to_file(x_i_pred, f'images/{name}_{l}.png')
                     save_spectrogram_to_file(sample[l+1].squeeze(), f'images/{name}_{l}_gt.png')
 
-        total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
+        ssim_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], calculate_ssim)
+        sdr, sir, sar, isr = evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], compute_bss_metrics)
+        sdr_sum += sdr
+        sir_sum += sir
+        sar_sum += sar
+        isr_sum += isr
+        snr_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], compute_spectral_snr)
 
-    return total_prediction_accuracy / num_samples
+    return snr_sum / num_samples, sdr_sum / num_samples, sir_sum / num_samples, sar_sum / num_samples, isr_sum / num_samples
