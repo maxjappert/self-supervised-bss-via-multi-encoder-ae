@@ -23,6 +23,8 @@ import torch.nn.functional as F
 #
 #spectrogram_to_audio('example.png', 22050, 'hello', from_file=True)
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 num_sources = 2
 
 name = 'musdb18_linear'
@@ -35,25 +37,25 @@ dataset_name = 'musdb18_two_sources'
 with open(f'{name}.json', 'r') as file:
     hps = json.load(file)
 
-model = get_model(linear=hps['linear'], channels=hps['channels'], hidden=hps['hidden'], num_encoders=num_sources, image_height=1025, image_width=216, norm_type=hps['norm_type'], use_weight_norm=hps['use_weight_norm']).to('cuda')
+model = get_model(linear=hps['linear'], channels=hps['channels'], hidden=hps['hidden'], num_encoders=num_sources, image_height=1025, image_width=216, norm_type=hps['norm_type'], use_weight_norm=hps['use_weight_norm']).to(device)
 
-model.load_state_dict(torch.load(f'{name}_best.pth'))
+model.load_state_dict(torch.load(f'{name}_best.pth', map_location=device))
 
-test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'])
-test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'second_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'])
-test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'third_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'])
+test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'pngs/first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'])
+test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'pngs/second_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'])
+test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'pngs/third_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'])
 
-spectrogram_to_audio(f'first_spectro_{name}_mix.png', sr=22050, output_filename=f'first_spectro_{name}_mix', from_file=True)
-spectrogram_to_audio(f'second_spectro_{name}_mix.png', sr=22050, output_filename=f'second_spectro_{name}_mix', from_file=True)
-spectrogram_to_audio(f'third_spectro_{name}_mix.png', sr=22050, output_filename=f'third_spectro_{name}_mix', from_file=True)
-spectrogram_to_audio(f'first_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'first_spectro_{name}_mix_gt', from_file=True)
-spectrogram_to_audio(f'second_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'second_spectro_{name}_mix_gt', from_file=True)
-spectrogram_to_audio(f'third_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'third_spectro_{name}_mix_gt', from_file=True)
+spectrogram_to_audio(f'pngs/first_spectro_{name}_mix.png', sr=22050, output_filename=f'pngs/first_spectro_{name}_mix', from_file=True)
+spectrogram_to_audio(f'pngs/second_spectro_{name}_mix.png', sr=22050, output_filename=f'pngs/second_spectro_{name}_mix', from_file=True)
+spectrogram_to_audio(f'pngs/third_spectro_{name}_mix.png', sr=22050, output_filename=f'pngs/third_spectro_{name}_mix', from_file=True)
+spectrogram_to_audio(f'pngs/first_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'pngs/first_spectro_{name}_mix_gt', from_file=True)
+spectrogram_to_audio(f'pngs/second_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'pngs/second_spectro_{name}_mix_gt', from_file=True)
+spectrogram_to_audio(f'pngs/third_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'pngs/third_spectro_{name}_mix_gt', from_file=True)
 
 for i in range(num_sources):
-    spectrogram_to_audio(f'first_spectro_{name}_{i}.png', sr=22050, output_filename=f'first_spectro_{name}_{i}', from_file=True)
-    spectrogram_to_audio(f'second_spectro_{name}_{i}.png', sr=22050, output_filename=f'second_spectro_{name}_{i}', from_file=True)
-    spectrogram_to_audio(f'third_spectro_{name}_{i}.png', sr=22050, output_filename=f'third_spectro_{name}_{i}', from_file=True)
-    spectrogram_to_audio(f'first_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'first_spectro_{name}_{i}_gt', from_file=True)
-    spectrogram_to_audio(f'second_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'second_spectro_{name}_{i}_gt', from_file=True)
-    spectrogram_to_audio(f'third_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'third_spectro_{name}_{i}_gt', from_file=True)
+    spectrogram_to_audio(f'pngs/first_spectro_{name}_{i}.png', sr=22050, output_filename=f'pngs/first_spectro_{name}_{i}', from_file=True)
+    spectrogram_to_audio(f'pngs/second_spectro_{name}_{i}.png', sr=22050, output_filename=f'pngs/second_spectro_{name}_{i}', from_file=True)
+    spectrogram_to_audio(f'pngs/third_spectro_{name}_{i}.png', sr=22050, output_filename=f'pngs/third_spectro_{name}_{i}', from_file=True)
+    spectrogram_to_audio(f'pngs/first_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'pngs/first_spectro_{name}_{i}_gt', from_file=True)
+    spectrogram_to_audio(f'pngs/second_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'pngs/second_spectro_{name}_{i}_gt', from_file=True)
+    spectrogram_to_audio(f'pngs/third_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'pngs/third_spectro_{name}_{i}_gt', from_file=True)

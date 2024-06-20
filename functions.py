@@ -228,8 +228,11 @@ def visualise_predictions(x_gt, x_i_gts, x_pred, x_i_preds: list, name='test'):
         ax.set_yticks([])
         ax.imshow(im, cmap='gray')
 
-    plt.savefig(f'{name}.png')
-    plt.show()
+    if not os.path.exists('images'):
+        os.mkdir('images')
+
+    plt.savefig(f'images/{name}.png')
+    #plt.show()
 
 
 def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, sep_lr, linear=False):
@@ -265,7 +268,10 @@ def export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_ty
         'linear': linear
     }
 
-    with open(f'{name}.json', 'w') as file:
+    if not os.path.exists('hyperparameters'):
+        os.mkdir('hyperparameters')
+
+    with open(f'hyperparameters/{name}.json', 'w') as file:
         json.dump(variables, file)
 
 
@@ -292,6 +298,9 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
     if name:
         export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm, linear)
+
+    if not os.path.exists('checkpoints'):
+        os.mkdir('checkpoints')
 
     #train_loader, val_loader = get_split_dataloaders(dataset_trainval, batch_size=batch_size, num_workers=num_workers)
 
@@ -355,7 +364,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         val_losses.append(val_loss)
 
         if val_loss < best_val_loss and name:
-            torch.save(model.state_dict(), f"{name}_best.pth")
+            torch.save(model.state_dict(), f"checkpoints/{name}_best.pth")
 
         test_loss = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
                          name=str(epoch+1), num_samples=1)
@@ -364,7 +373,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
             print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}, Score: {np.round(test_loss, 4)}')
 
     if name:
-        torch.save(model.state_dict(), f"{name}_final.pth")
+        torch.save(model.state_dict(), f"checkpoints/{name}_final.pth")
 
     return model, train_losses, val_losses
 
@@ -386,6 +395,7 @@ def evaluate_separation_ability(approxs, gts):
     return np.mean(scores)
 
 
+# TODO: Rewrite using get_(non_)linear_separation(...) function
 def visualise_linear(model: LinearConvolutionalAutoencoder, dataset_test, visualise=True, name='test', num_samples=100):
     og_flag = model.return_sum
     model.return_sum = False
@@ -440,6 +450,9 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
 
     model.eval()
 
+    if not os.path.exists('images'):
+        os.makedirs('images')
+
     for sample_index in range(num_samples):
         # Sample random value from test set
         sample = dataset_val[random.randint(0, len(dataset_val) - 1)]
@@ -457,15 +470,12 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
                 visualise_predictions(sample[0].squeeze(), [x_i.squeeze() for x_i in sample[1:]], x_pred, x_i_preds, name=name)
                 print(f'{name}.png saved')
             else:
-                save_spectrogram_to_file(x_pred, f'{name}_mix.png')
-                save_spectrogram_to_file(sample[0].squeeze(), f'{name}_mix_gt.png')
+                save_spectrogram_to_file(x_pred, f'images/{name}_mix.png')
+                save_spectrogram_to_file(sample[0].squeeze(), f'images/{name}_mix_gt.png')
                 for l, x_i_pred in enumerate(x_i_preds):
-                    save_spectrogram_to_file(x_i_pred, f'{name}_{l}.png')
-                    save_spectrogram_to_file(sample[l+1].squeeze(), f'{name}_{l}_gt.png')
+                    save_spectrogram_to_file(x_i_pred, f'images/{name}_{l}.png')
+                    save_spectrogram_to_file(sample[l+1].squeeze(), f'images/{name}_{l}_gt.png')
 
         total_prediction_accuracy += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
-
-    if total_prediction_accuracy / num_samples is math.nan:
-        print('here')
 
     return total_prediction_accuracy / num_samples
