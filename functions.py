@@ -365,8 +365,8 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         val_loss /= len(val_loader.dataset)
         val_losses.append(val_loss)
 
-        _, sdr, _, _, _ = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
-                         name=f'{str(epoch + 1)}_{name}', num_samples=10)
+        sdr, snr = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
+                         name=f'{str(epoch + 1)}_{name}', num_samples=10, metric='both')
 
         if sdr > best_sdr and name:
             torch.save(model.state_dict(), f"checkpoints/{name}_best.pth")
@@ -374,7 +374,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
         if verbose:
             print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
-            print(f'SDR: {sdr}')
+            print(f'SDR: {sdr}, SNR: {snr}')
 
     if name:
         torch.save(model.state_dict(), f"checkpoints/{name}_final.pth")
@@ -386,7 +386,7 @@ def evaluate_separation_ability(approxs, gts, metric_function):
 
     scores = []
     for gt in gts:
-        best_score = 0
+        best_score = -math.inf
         for approx in approxs:
             if np.any(approx):  # Ensure the approximation is not completely black
                 score = metric_function(gt, approx)
@@ -447,7 +447,7 @@ def get_non_linear_separation(model, sample):
         return x_i_preds
 
 
-def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False):
+def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False, metric='sdr'):
     ssim_sum = 0
     sdr_sum = 0
     snr_sum = 0
@@ -462,7 +462,11 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
 
     for sample_index in range(num_samples):
         # Sample random value from test set
-        sample = dataset_val[random.randint(0, len(dataset_val) - 1)]
+
+        if sample_index == 0:
+            sample = dataset_val[0]
+        else:
+            sample = dataset_val[random.randint(0, len(dataset_val) - 1)]
 
         x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
         x_pred, _ = model(x)
@@ -483,12 +487,17 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
                     save_spectrogram_to_file(x_i_pred, f'images/{name}_{l}.png')
                     save_spectrogram_to_file(sample[l+1].squeeze(), f'images/{name}_{l}_gt.png')
 
-        ssim_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], calculate_ssim)
-        sdr, sir, sar, isr = evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], compute_bss_metrics)
+        #ssim_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], calculate_ssim)
+        sdr = evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], compute_bss_metrics)
         sdr_sum += sdr
-        sir_sum += sir
-        sar_sum += sar
-        isr_sum += isr
+        #sir_sum += sir
+        #sar_sum += sar
+        #isr_sum += isr
         snr_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], compute_spectral_snr)
 
-    return snr_sum / num_samples, sdr_sum / num_samples, sir_sum / num_samples, sar_sum / num_samples, isr_sum / num_samples
+    if metric == 'sdr':
+        return sdr_sum / num_samples#, sir_sum / num_samples, sar_sum / num_samples, isr_sum / num_samples
+    elif metric == 'snr':
+        return snr_sum / num_samples
+    else:
+        return sdr_sum / num_samples, snr_sum / num_samples

@@ -1,3 +1,5 @@
+import sys
+
 import librosa
 import mir_eval
 import numpy as np
@@ -48,17 +50,19 @@ def compute_bss_metrics(reference_spectrogram, estimated_spectrogram, sr=22050, 
     # Ensure the spectrograms are the same shape
     assert reference_spectrogram.shape == estimated_spectrogram.shape, "Spectrograms must have the same shape"
 
-
-
     #num_sources, _, _ = reference_spectrograms.shape
 
     # Convert spectrograms back to time-domain signals
     reference_signal = librosa.istft(reference_spectrogram, hop_length=hop_length)
     estimated_signal = librosa.istft(estimated_spectrogram, hop_length=hop_length)
 
+    # Because all-zero signals aren't allowed
+    if np.all(reference_signal == 0):
+        reference_spectrogram += 1
+
     # Compute BSS metrics
     sdr, sir, sar, isr = mir_eval.separation.bss_eval_sources(reference_signal, estimated_signal)
-    return sdr, sir, sar, isr
+    return sdr[0]
 
 
 def calculate_ssim(a, b):

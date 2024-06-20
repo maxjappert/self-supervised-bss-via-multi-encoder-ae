@@ -20,8 +20,8 @@ def audio_to_spectrogram(audio_file, save_to_file=False):
 
     # Save the spectrogram to a PNG file
     if save_to_file:
-        plt.imsave(f'{audio_file.parent / f"spectrogram_{name}.png"}', S_db_normalized, cmap='gray')
-        np.save(f'{audio_file.parent / f"sr_{name}.npy"}', sr)
+        plt.imsave(f' images / spectrogram_{name}.png', S_db_normalized, cmap='gray')
+        np.save(f'images / sr_{name}.npy', sr)
 
     return S_db_normalized, sr
 
@@ -29,7 +29,7 @@ def audio_to_spectrogram(audio_file, save_to_file=False):
 def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
     # Load the spectrogram image
     if from_file:
-        img = Image.open(spectrogram).convert('L')
+        img = Image.open(f'images/{spectrogram}').convert('L')
         S_db_imported = np.array(img)
         #sr = np.load(sr).item()
     else:
@@ -45,7 +45,7 @@ def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
     audio_signal = librosa.core.griffinlim(S_imported)
 
     # Write the output to a WAV file
-    scipy.io.wavfile.write(f'{output_filename}.wav', sr, np.array(audio_signal * 32767, dtype=np.int16))
+    scipy.io.wavfile.write(f'wavs/{output_filename}.wav', sr, np.array(audio_signal * 32767, dtype=np.int16))
 
 
 #spectrogram, sr = audio_to_spectrogram('01_Jupiter_vn_vc/AuSep_1_vn_01_Jupiter.wav', save_to_file=True)
