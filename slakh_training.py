@@ -35,7 +35,7 @@ print(f'dataset: {dataset_name}')
 
 # image_height=1025, image_width=216
 
-model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources'), batch_size=32, dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources'), channels=[24, 48, 96, 144], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=True)
+model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources'), batch_size=28, lr=1e-4, hidden=512, dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources'), channels=[24, 48, 96, 144, 196], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=True)
 
 with open(f'hyperparameters/{name}.json', 'r') as file:
     hps = json.load(file)
@@ -44,9 +44,9 @@ model = get_model(linear=hps['linear'], channels=hps['channels'], hidden=hps['hi
 
 model.load_state_dict(torch.load(f'checkpoints/{name}_best.pth', map_location=device))
 
-sdr1 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both')
-sdr2 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'second_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both')
-sdr3 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'third_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both')
+sdr1 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both', random_visualisation=True)
+sdr2 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'second_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both', random_visualisation=True)
+sdr3 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'third_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both', random_visualisation=True)
 
 print(f'SDRs:')
 print(sdr1)

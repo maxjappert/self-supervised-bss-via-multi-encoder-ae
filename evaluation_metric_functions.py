@@ -1,3 +1,4 @@
+import math
 import sys
 
 import librosa
@@ -19,12 +20,14 @@ def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
     # Ensure the spectrograms are the same shape
     assert reference_spectrogram.shape == noisy_spectrogram.shape, "Spectrograms must have the same shape"
 
+    epsilon = 1e-10
+
     # Compute power spectra
     ref_power = np.abs(reference_spectrogram) ** 2
     noise_power = np.abs(reference_spectrogram - noisy_spectrogram) ** 2
 
     # Compute SNR for each frequency bin and time frame
-    snr_spectrum = 10 * np.log10(ref_power / (noise_power + 1e-10))
+    snr_spectrum = 10 * np.log10(ref_power / (noise_power + epsilon) + epsilon)
 
     # Average SNR across all frequency bins and time frames
     avg_snr = np.mean(snr_spectrum)
@@ -57,12 +60,12 @@ def compute_bss_metrics(reference_spectrogram, estimated_spectrogram, sr=22050, 
     estimated_signal = librosa.istft(estimated_spectrogram, hop_length=hop_length)
 
     # Because all-zero signals aren't allowed
-    if np.all(reference_signal == 0):
-        reference_spectrogram += 1
-
-    # Compute BSS metrics
-    sdr, sir, sar, isr = mir_eval.separation.bss_eval_sources(reference_signal, estimated_signal)
-    return sdr[0]
+    try:
+        # Compute BSS metrics
+        sdr, sir, sar, isr = mir_eval.separation.bss_eval_sources(reference_signal, estimated_signal)
+        return sdr[0]
+    except ValueError:
+        return -math.inf
 
 
 def calculate_ssim(a, b):

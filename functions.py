@@ -447,7 +447,7 @@ def get_non_linear_separation(model, sample):
         return x_i_preds
 
 
-def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False, metric='sdr'):
+def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False, metric='sdr', random_visualisation=False):
     ssim_sum = 0
     sdr_sum = 0
     snr_sum = 0
@@ -463,7 +463,7 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
     for sample_index in range(num_samples):
         # Sample random value from test set
 
-        if sample_index == 0:
+        if sample_index == 0 and not random_visualisation:
             sample = dataset_val[0]
         else:
             sample = dataset_val[random.randint(0, len(dataset_val) - 1)]
