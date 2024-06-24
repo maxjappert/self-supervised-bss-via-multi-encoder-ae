@@ -1,4 +1,8 @@
+import math
+
 import optuna
+import torch
+
 from functions import get_model, CircleTriangleDataset, train, test, TwoSourcesDataset
 
 
@@ -25,24 +29,28 @@ def objective(trial):
     dataset_train = TwoSourcesDataset(split='train', name='musdb18_two_sources')
     dataset_val = TwoSourcesDataset(split='validation', name='musdb18_two_sources')
 
-    # Train model
-    model, train_losses, val_losses = train(
-        channels=channels, hidden=hidden, norm_type=norm_type, num_encoders=2,
-        dataset_train=dataset_train,
-        dataset_val=dataset_val,
-        dataset_split_ratio=0.8,
-        batch_size=batch_size,
-        sep_norm=sep_norm,
-        sep_lr=sep_lr,
-        zero_lr=zero_lr,
-        lr=lr,
-        lr_step_size=50,
-        lr_gamma=1.0,
-        weight_decay=weight_decay,
-        max_epochs=5,
-        verbose=False,
-        num_workers=12
-    )
+    try:
+        # Train model
+        model, train_losses, val_losses = train(
+            channels=channels, hidden=hidden, norm_type=norm_type, num_encoders=2,
+            dataset_train=dataset_train,
+            dataset_val=dataset_val,
+            dataset_split_ratio=0.8,
+            batch_size=batch_size,
+            sep_norm=sep_norm,
+            sep_lr=sep_lr,
+            zero_lr=zero_lr,
+            lr=lr,
+            lr_step_size=50,
+            lr_gamma=1.0,
+            weight_decay=weight_decay,
+            max_epochs=5,
+            verbose=False,
+            num_workers=12
+        )
+    except torch.cuda.OutOfMemoryError:
+        print('CUDA out of Memory')
+        return -math.inf
 
     test_score = test(model, dataset_val, visualise=False, metric='snr')
     # Return the best validation loss
