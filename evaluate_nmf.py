@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 
 import numpy as np
@@ -47,8 +48,14 @@ data_path = 'data/musdb18_two_sources/validation'
 
 total_snr = 0
 num_data = len(os.listdir(data_path))
+counter = 0
 
 for i, data in enumerate(os.listdir(data_path)):
+
+    if random.random() < 0.95:
+        continue
+
+    counter += 1
 
     S_mix_gt = np.array(Image.open(os.path.join(data_path, data, 'mix.png')))
     S_mix_gt = np.mean(S_mix_gt, axis=2)
@@ -59,7 +66,7 @@ for i, data in enumerate(os.listdir(data_path)):
     S1_gt = np.mean(S1_gt, axis=2)
     S2_gt = np.mean(S2_gt, axis=2)
 
-    nmf = NMF(n_components=2, init='nndsvdar', max_iter=5000, random_state=0)
+    nmf = NMF(n_components=2, init='nndsvdar', max_iter=1000, random_state=0)
     W = nmf.fit_transform(S_mix_gt)
     H = nmf.components_
 
@@ -69,11 +76,8 @@ for i, data in enumerate(os.listdir(data_path)):
 
     total_snr += evaluate_separation_ability([S1_approx, S2_approx], [S1_gt, S2_gt], compute_spectral_snr)
 
-    if i % 10000 == 0:
+    if counter % 10 == 0:
         create_combined_image(S_mix_gt, S1_approx, S2_approx, S1_gt, S2_gt, f'nmf_{i}.png')
-        print(f'After {i+1} validation images: ~{total_snr / (i+1)} ')
-
-
-print(total_snr / num_data)
+        print(f'After {counter} validation images: ~{total_snr / counter} ')
 
 

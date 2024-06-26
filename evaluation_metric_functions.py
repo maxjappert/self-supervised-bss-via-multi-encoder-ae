@@ -27,7 +27,7 @@ def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
     noise_power = np.abs(reference_spectrogram - noisy_spectrogram) ** 2
 
     # Compute SNR for each frequency bin and time frame
-    snr_spectrum = 10 * np.log10(ref_power / (noise_power + epsilon) + epsilon)
+    snr_spectrum = 10 * np.log10(np.maximum(ref_power / np.maximum(noise_power, epsilon), epsilon))
 
     # Average SNR across all frequency bins and time frames
     avg_snr = np.mean(snr_spectrum)
@@ -70,3 +70,10 @@ def compute_bss_metrics(reference_spectrogram, estimated_spectrogram, sr=22050, 
 
 def calculate_ssim(a, b):
     return ssim(a, b, data_range=b.max() - b.min())
+
+    #return {
+    #    'total_mse': total_mse,
+    #    'mean_mse': mean_mse,
+    #    'matching_indices': list(zip(row_ind, col_ind))
+    #}
+

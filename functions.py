@@ -317,7 +317,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
     train_losses = []
     val_losses = []
-    best_sdr = -math.inf
+    best_snr = -math.inf
     for epoch in range(max_epochs):
         model.train()        
         train_loss = 0.0
@@ -365,16 +365,16 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         val_loss /= len(val_loader.dataset)
         val_losses.append(val_loss)
 
-        sdr, snr = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
-                         name=f'{str(epoch + 1)}_{name}', num_samples=10, metric='both')
+        snr = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
+                         name=f'{str(epoch + 1)}_{name}', num_samples=10, metric_function=compute_spectral_snr)
 
-        if sdr > best_sdr and name:
+        if snr > best_snr and name:
             torch.save(model.state_dict(), f"checkpoints/{name}_best.pth")
-            best_sdr = sdr
+            best_snr = snr
 
         if verbose:
             print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
-            print(f'SDR: {sdr}, SNR: {snr}')
+            print(f'SNR: {snr}')
 
     if name:
         torch.save(model.state_dict(), f"checkpoints/{name}_final.pth")
@@ -382,19 +382,32 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     return model, train_losses, val_losses
 
 
-def evaluate_separation_ability(approxs, gts, metric_function):
+def evaluate_separation_ability(ground_truths, approximations, metric_function):
+    # Ensure inputs are numpy arrays
+    ground_truths = np.array(ground_truths)
+    approximations = np.array(approximations)
 
-    scores = []
-    for gt in gts:
-        best_score = -math.inf
-        for approx in approxs:
-            if np.any(approx):  # Ensure the approximation is not completely black
-                score = metric_function(gt, approx)
-                if score > best_score:
-                    best_score = score
-        scores.append(best_score)
+    num_truths = len(ground_truths)
+    num_approximations = len(approximations)
 
-    return np.mean(scores)
+    # Initialize a matrix to store MSE values
+    metric_matrix = np.zeros((num_truths, num_approximations))
+
+    # Compute MSE for each pair of ground truth and approximation
+    for i in range(num_truths):
+        for j in range(num_approximations):
+            metric_matrix[i, j] = metric_function(ground_truths, approximations) # np.mean((ground_truths[i] - approximations[j]) ** 2)
+
+
+    # Find the best matching for approximations to ground truths
+    from scipy.optimize import linear_sum_assignment
+    row_ind, col_ind = linear_sum_assignment(metric_matrix)
+
+    # Compute the overall quality score
+    total_mse = metric_matrix[row_ind, col_ind].sum()
+    mean_mse = total_mse / num_truths
+
+    return mean_mse
 
 
 # TODO: Rewrite using get_(non_)linear_separation(...) function
@@ -447,13 +460,8 @@ def get_non_linear_separation(model, sample):
         return x_i_preds
 
 
-def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False, metric='sdr', random_visualisation=False):
-    ssim_sum = 0
-    sdr_sum = 0
-    snr_sum = 0
-    sir_sum = 0
-    sar_sum = 0
-    isr_sum = 0
+def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False, metric_function=compute_spectral_snr, random_visualisation=False):
+    metric_sum = 0
 
     model.eval()
 
@@ -487,17 +495,6 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
                     save_spectrogram_to_file(x_i_pred, f'images/{name}_{l}.png')
                     save_spectrogram_to_file(sample[l+1].squeeze(), f'images/{name}_{l}_gt.png')
 
-        #ssim_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], calculate_ssim)
-        sdr = evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], compute_bss_metrics)
-        sdr_sum += sdr
-        #sir_sum += sir
-        #sar_sum += sar
-        #isr_sum += isr
-        snr_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], compute_spectral_snr)
+        metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], metric_function)
 
-    if metric == 'sdr':
-        return sdr_sum / num_samples#, sir_sum / num_samples, sar_sum / num_samples, isr_sum / num_samples
-    elif metric == 'snr':
-        return snr_sum / num_samples
-    else:
-        return sdr_sum / num_samples, snr_sum / num_samples
+    return metric_sum / num_samples

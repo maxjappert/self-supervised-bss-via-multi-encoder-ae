@@ -27,7 +27,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 num_sources = 2
 
-name = 'musdb18_linear_new'
+name = 'musdb18_linear_evaluated_optimal'
 dataset_name = 'musdb18_two_sources'
 
 print(f'name: {name}')
@@ -35,7 +35,10 @@ print(f'dataset: {dataset_name}')
 
 # image_height=1025, image_width=216
 
-model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources'), batch_size=28, lr=1e-4, hidden=512, dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources'), channels=[24, 48, 96, 144, 196], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=True)
+hps = {'sep_lr': 0.1, 'zero_lr': 0.02, 'hidden': 176, 'channel_index': 4, 'norm_type': 'group_norm', 'weight_decay': 0.0001, 'sep_norm': 'L1', 'batch_size': 16, 'lr': 0.0001}
+
+#model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources'), batch_size=28, lr=1e-4, hidden=512, dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources'), channels=[24, 48, 96, 144, 196], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=True)
+#model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources'), batch_size=hps['batch_size'], lr=hps['lr'], hidden=hps['hidden'], dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources'), channels=[8, 16, 32, 64, 128], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=True)
 
 with open(f'hyperparameters/{name}.json', 'r') as file:
     hps = json.load(file)
@@ -44,11 +47,11 @@ model = get_model(linear=hps['linear'], channels=hps['channels'], hidden=hps['hi
 
 model.load_state_dict(torch.load(f'checkpoints/{name}_best.pth', map_location=device))
 
-sdr1 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both', random_visualisation=True)
-sdr2 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'second_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both', random_visualisation=True)
-sdr3 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'third_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric='both', random_visualisation=True)
+sdr1 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric_function=compute_spectral_snr, random_visualisation=True)
+sdr2 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'second_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric_function=compute_spectral_snr, random_visualisation=True)
+sdr3 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'third_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric_function=compute_spectral_snr, random_visualisation=True)
 
-print(f'SDRs:')
+print(f'SNRs:')
 print(sdr1)
 print(sdr2)
 print(sdr3)

@@ -3,6 +3,7 @@ import math
 import optuna
 import torch
 
+from evaluation_metric_functions import compute_spectral_snr
 from functions import get_model, CircleTriangleDataset, train, test, TwoSourcesDataset
 
 
@@ -49,17 +50,17 @@ def objective(trial):
             num_workers=12
         )
     except torch.cuda.OutOfMemoryError:
-        print('CUDA out of Memory')
+        print('CUDA out of Memory. Skipping')
         return -math.inf
 
-    test_score = test(model, dataset_val, visualise=False, metric='snr')
+    test_score = test(model, dataset_val, visualise=False, metric_function=compute_spectral_snr)
     # Return the best validation loss
     return test_score
 
 
 # Set up the Optuna study
 study = optuna.create_study(direction='maximize')
-study.optimize(objective, n_trials=200)
+study.optimize(objective, n_trials=100)
 
 # Print the best hyperparameters
 print("Best hyperparameters: ", study.best_params)
