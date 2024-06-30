@@ -1,10 +1,13 @@
 import math
+import numbers
 import sys
 
 import librosa
 import mir_eval
 import numpy as np
+from matplotlib import pyplot as plt
 from skimage.metrics import structural_similarity as ssim
+
 
 def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
     """
@@ -20,7 +23,7 @@ def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
     # Ensure the spectrograms are the same shape
     assert reference_spectrogram.shape == noisy_spectrogram.shape, "Spectrograms must have the same shape"
 
-    epsilon = 1e-10
+    epsilon = 1e-7
 
     # Compute power spectra
     ref_power = np.abs(reference_spectrogram) ** 2
@@ -32,48 +35,73 @@ def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
     # Average SNR across all frequency bins and time frames
     avg_snr = np.mean(snr_spectrum)
 
+    if avg_snr == math.nan:
+        print('snr is nan')
+
     return avg_snr
 
 
-def compute_bss_metrics(reference_spectrogram, estimated_spectrogram, sr=22050, n_fft=2048,
-                                          hop_length=512):
+def save_spectrogram_to_file(spectrogram, filename):
     """
-    Compute BSS metrics (SDR, SIR, SAR, ISR) between the reference and estimated spectrograms.
-
-    Parameters:
-    reference_spectrograms (np.ndarray): The original source spectrograms (shape: num_sources x freq_bins x time_frames).
-    estimated_spectrograms (np.ndarray): The separated (estimated) spectrograms (shape: num_sources x freq_bins x time_frames).
-    sr (int): Sampling rate of the signals.
-    n_fft (int): FFT window size.
-    hop_length (int): Number of samples between successive frames.
-
-    Returns:
-    tuple: A tuple containing numpy arrays for SDR, SIR, SAR, and ISR for each source.
+    Saves a spectrogram image.
+    :param spectrogram: 2D array constituting a spectrogram.
+    :param filename: Name of file within the images folder.
+    :return: None.
     """
-    # Ensure the spectrograms are the same shape
-    assert reference_spectrogram.shape == estimated_spectrogram.shape, "Spectrograms must have the same shape"
+    plt.imsave(f'images/{filename}', spectrogram, cmap='gray')
 
-    #num_sources, _, _ = reference_spectrograms.shape
 
-    # Convert spectrograms back to time-domain signals
-    reference_signal = librosa.istft(reference_spectrogram, hop_length=hop_length)
-    estimated_signal = librosa.istft(estimated_spectrogram, hop_length=hop_length)
 
-    # Because all-zero signals aren't allowed
+def compute_spectral_sdr(reference, estimated):
+    """
+    Calculate the Signal-to-Distortion Ratio (SDR) for 2D numpy arrays of spectrograms.
+
+    :param reference: 2D numpy array (spectrogram) of the reference signal
+    :param estimated: 2D numpy array (spectrogram) of the estimated signal
+    :return: SDR value in dB
+    """
+
+    assert reference.shape == estimated.shape, "Spectrograms must have the same shape"
+
+    # Ensure inputs are numpy arrays
+    reference = np.array(reference)
+    estimated = np.array(estimated)
+
+    # Compute the numerator and denominator for SDR
+    numerator = np.sum(reference ** 2)
+    denominator = np.sum((reference - estimated) ** 2)
+
+    if np.isnan(reference).any():
+        print('Reference in SDR contains NaN. Returning SDR of 0.')
+        return 0
+    if np.isnan(estimated).any():
+        print('Prediction in SDR contains NaN. Returning SDR of 0.')
+        return 0
+
+    if type(denominator) is not np.float32:
+        print('sdr denominator not numeric! returning 0.')
+        return 0
+
+    eps = 1e-7
+
     try:
-        # Compute BSS metrics
-        sdr, sir, sar, isr = mir_eval.separation.bss_eval_sources(reference_signal, estimated_signal)
-        return sdr[0]
-    except ValueError:
-        return -math.inf
+        # Avoid division by zero
+        if denominator == 0 and not np.isclose(reference, np.zeros_like(reference)):
+            print(np.isclose(reference, estimated))
+            print('Sus accuracy')
+            save_spectrogram_to_file(reference, 'sus_reference.png')
+            save_spectrogram_to_file(reference, 'sus_estimated.png')
+            float('inf')
+        elif denominator == 0:
+            return 0
+        else:
+            sdr = 10 * np.log10(np.maximum(numerator / np.maximum(denominator, eps), eps))
+
+            return sdr
+    except Exception:
+        print(denominator)
 
 
-def calculate_ssim(a, b):
-    return ssim(a, b, data_range=b.max() - b.min())
-
-    #return {
-    #    'total_mse': total_mse,
-    #    'mean_mse': mean_mse,
-    #    'matching_indices': list(zip(row_ind, col_ind))
-    #}
+def compute_ssim(gts, approxs):
+    return ssim(gts, approxs, data_range=approxs.max() - approxs.min())
 

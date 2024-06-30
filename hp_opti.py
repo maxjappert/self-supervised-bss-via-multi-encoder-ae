@@ -1,10 +1,11 @@
 import math
+import traceback
 
 import optuna
 import torch
 
-from evaluation_metric_functions import compute_spectral_snr
-from functions import get_model, CircleTriangleDataset, train, test, TwoSourcesDataset
+from evaluation_metric_functions import compute_spectral_snr, compute_spectral_sdr
+from functions import model_factory, CircleTriangleDataset, train, test, TwoSourcesDataset
 
 
 def objective(trial):
@@ -23,12 +24,14 @@ def objective(trial):
     sep_norm = trial.suggest_categorical('sep_norm', ['L1', 'L2'])
     batch_size = trial.suggest_categorical('batch_size', [2**i for i in range(9)])
     lr = trial.suggest_categorical('lr', [10**(-i) for i in range(6)])
+    normalisation = trial.suggest_categorical('normalisation', ['minmax', 'z-score'])
+    linear = trial.suggest_categorical('linear', [True, False])
 
     channels = channel_options[channel_index]
 
     # Load dataset
-    dataset_train = TwoSourcesDataset(split='train', name='musdb18_two_sources')
-    dataset_val = TwoSourcesDataset(split='validation', name='musdb18_two_sources')
+    dataset_train = TwoSourcesDataset(split='train', name='musdb18_two_sources', normalisation=normalisation)
+    dataset_val = TwoSourcesDataset(split='validation', name='musdb18_two_sources', normalisation=normalisation)
 
     try:
         # Train model
@@ -47,20 +50,25 @@ def objective(trial):
             weight_decay=weight_decay,
             max_epochs=5,
             verbose=False,
-            num_workers=12
+            num_workers=12,
+            linear=linear
         )
     except torch.cuda.OutOfMemoryError:
         print('CUDA out of Memory. Skipping')
         return -math.inf
+    except Exception as e:
+        print(f"Caught an exception: {e}. Skipping.")
+        traceback.print_exc()
+        return -math.inf
 
-    test_score = test(model, dataset_val, visualise=False, metric_function=compute_spectral_snr)
+    test_score = test(model, dataset_val, visualise=False, metric_function=compute_spectral_sdr, linear=linear)
     # Return the best validation loss
     return test_score
 
 
 # Set up the Optuna study
 study = optuna.create_study(direction='maximize')
-study.optimize(objective, n_trials=100)
+study.optimize(objective, n_trials=200)
 
 # Print the best hyperparameters
 print("Best hyperparameters: ", study.best_params)

@@ -43,7 +43,7 @@ hps = {'sep_lr': 0.1, 'zero_lr': 0.02, 'hidden': 176, 'channel_index': 4, 'norm_
 with open(f'hyperparameters/{name}.json', 'r') as file:
     hps = json.load(file)
 
-model = get_model(linear=hps['linear'], channels=hps['channels'], hidden=hps['hidden'], num_encoders=num_sources, image_height=1025, image_width=216, norm_type=hps['norm_type'], use_weight_norm=hps['use_weight_norm']).to(device)
+model = model_factory(linear=hps['linear'], channels=hps['channels'], hidden=hps['hidden'], num_encoders=num_sources, image_height=1025, image_width=216, norm_type=hps['norm_type'], use_weight_norm=hps['use_weight_norm']).to(device)
 
 model.load_state_dict(torch.load(f'checkpoints/{name}_best.pth', map_location=device))
 
