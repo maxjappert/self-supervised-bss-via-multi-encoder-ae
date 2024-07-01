@@ -6,6 +6,7 @@ import random
 import sys
 import traceback
 
+import librosa
 from PIL import Image
 from datetime import datetime
 
@@ -333,6 +334,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     train_losses = []
     val_losses = []
     best_sdr = -math.inf
+    best_val_loss = math.inf
     for epoch in range(max_epochs):
         model.train()        
         train_loss = 0.0
@@ -391,8 +393,12 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
 
         if sdr > best_sdr and name:
-            torch.save(model.state_dict(), f"checkpoints/{name}_best.pth")
+            torch.save(model.state_dict(), f"checkpoints/{name}_best_sdr.pth")
             best_sdr = sdr
+
+        if val_loss < best_val_loss and name:
+            torch.save(model.state_dict(), f"checkpoints/{name}_best_val_loss.pth")
+            best_val_loss = val_loss
 
         if verbose:
             print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
@@ -517,7 +523,7 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
     for sample_index in range(num_samples):
         # Sample random value from test set
 
-        if sample_index == 0 and not random_visualisation:
+        if sample_index == 1 and not random_visualisation:
             sample = dataset_val[0]
         else:
             sample = dataset_val[random.randint(0, len(dataset_val) - 1)]
@@ -544,3 +550,35 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
         metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], metric_function)
 
     return metric_sum / num_samples
+
+
+def create_combined_image(S_mix_gt, S1_approx, S2_approx, S1_gt, S2_gt, output_path):
+    fig, axes = plt.subplots(3, 2, figsize=(10, 15))
+
+    # Display the spectrograms
+    librosa.display.specshow(S_mix_gt, x_axis='time', y_axis='log', ax=axes[0, 0])
+    axes[0, 0].set_title('Original Mix')
+
+    librosa.display.specshow((S1_approx + S2_approx) / 2, x_axis='time', y_axis='log', ax=axes[0, 1])
+    axes[0, 1].set_title('Approximate Mix')
+
+    librosa.display.specshow(S1_approx, x_axis='time', y_axis='log', ax=axes[1, 0])
+    axes[1, 0].set_title('Approximate Source 1')
+
+    librosa.display.specshow(S2_approx, x_axis='time', y_axis='log', ax=axes[1, 1])
+    axes[1, 1].set_title('Approximate Source 2')
+
+    librosa.display.specshow(S1_gt, x_axis='time', y_axis='log', ax=axes[2, 0])
+    axes[2, 0].set_title('Ground Truth Source 1')
+
+    librosa.display.specshow(S2_gt, x_axis='time', y_axis='log', ax=axes[2, 1])
+    axes[2, 1].set_title('Ground Truth Source 2')
+
+    # Save the combined image
+    plt.tight_layout()
+
+    if not os.path.exists('images'):
+        os.mkdir('images')
+
+    plt.savefig(f'images/{output_path}')
+    plt.close()

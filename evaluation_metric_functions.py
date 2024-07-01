@@ -78,7 +78,7 @@ def compute_spectral_sdr(reference, estimated):
         print('Prediction in SDR contains NaN. Returning SDR of 0.')
         return 0
 
-    if type(denominator) is not np.float32:
+    if type(denominator) is not np.float32 and denominator != 0:
         print('sdr denominator not numeric! returning 0.')
         return 0
 
@@ -86,19 +86,21 @@ def compute_spectral_sdr(reference, estimated):
 
     try:
         # Avoid division by zero
-        if denominator == 0 and not np.isclose(reference, np.zeros_like(reference)):
-            print(np.isclose(reference, estimated))
+        if denominator == 0 and not np.isclose(reference, np.zeros_like(reference)).all():
+            print(np.isclose(reference, estimated).all())
             print('Sus accuracy')
+            print(reference.shape)
             save_spectrogram_to_file(reference, 'sus_reference.png')
-            save_spectrogram_to_file(reference, 'sus_estimated.png')
-            float('inf')
+            save_spectrogram_to_file(estimated, 'sus_estimated.png')
+            return float('inf')
         elif denominator == 0:
             return 0
         else:
             sdr = 10 * np.log10(np.maximum(numerator / np.maximum(denominator, eps), eps))
 
             return sdr
-    except Exception:
+    except Exception as e:
+        print(e)
         print(denominator)
 
 
