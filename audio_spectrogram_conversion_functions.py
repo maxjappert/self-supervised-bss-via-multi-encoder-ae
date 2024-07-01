@@ -42,7 +42,7 @@ def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
     S_imported = librosa.db_to_amplitude(S_db_imported)
 
     # Use Griffin-Lim algorithm to approximate the phase and reconstruct the audio
-    audio_signal = librosa.core.griffinlim(S_imported) * 10
+    audio_signal = librosa.core.griffinlim(S_imported)
 
     #print(f'[{audio_signal.min()}, {audio_signal.max()}')
 
@@ -50,7 +50,7 @@ def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
         # Write the output to a WAV file
         scipy.io.wavfile.write(f'wavs/{output_filename}.wav', sr, np.array(audio_signal * 32767, dtype=np.int16))
 
-    return audio_signal
+    return audio_signal * 32767
 
 
 #spectrogram, sr = audio_to_spectrogram('01_Jupiter_vn_vc/AuSep_1_vn_01_Jupiter.wav', save_to_file=True)

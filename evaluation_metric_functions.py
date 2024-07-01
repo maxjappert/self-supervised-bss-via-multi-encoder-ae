@@ -2,7 +2,6 @@ import math
 import numbers
 import sys
 
-import fast_bss_eval
 import librosa
 import mir_eval
 import numpy as np

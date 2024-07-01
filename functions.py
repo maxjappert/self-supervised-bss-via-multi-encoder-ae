@@ -479,6 +479,12 @@ def visualise_linear(model: LinearConvolutionalAutoencoder, dataset_test, visual
     model.return_sum = og_flag
 
 
+def get_reconstruction(model, sample):
+    with torch.no_grad():
+        x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
+        x_pred, _ = model(x)
+        return torch.sigmoid(x_pred).squeeze().detach().cpu().numpy()
+
 def get_linear_separation(model, sample):
     with torch.no_grad():
         x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
@@ -582,3 +588,17 @@ def create_combined_image(S_mix_gt, S1_approx, S2_approx, S1_gt, S2_gt, output_p
 
     plt.savefig(f'images/{output_path}')
     plt.close()
+
+
+def load_model(name):
+    with open(f'hyperparameters/{name}.json') as json_file:
+        hps = json.load(json_file)
+
+    model = model_factory(linear=hps['linear'], channels=hps['channels'], hidden=hps['hidden'],
+                          num_encoders=2, image_height=1025, image_width=216, norm_type=hps['norm_type'],
+                          use_weight_norm=hps['use_weight_norm']).to(device)
+
+    model.load_state_dict(torch.load(f'checkpoints/{name}_best_sdr.pth', map_location=device))
+
+    return model
+
