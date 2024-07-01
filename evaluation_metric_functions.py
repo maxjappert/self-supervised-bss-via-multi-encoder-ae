@@ -2,12 +2,14 @@ import math
 import numbers
 import sys
 
+import fast_bss_eval
 import librosa
 import mir_eval
 import numpy as np
 from matplotlib import pyplot as plt
 from skimage.metrics import structural_similarity as ssim
 
+from audio_spectrogram_conversion_functions import spectrogram_to_audio
 
 def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
     """
@@ -76,10 +78,6 @@ def compute_spectral_sdr(reference, estimated):
         return 0
     if np.isnan(estimated).any():
         print('Prediction in SDR contains NaN. Returning SDR of 0.')
-        return 0
-
-    if type(denominator) is not np.float32 and denominator != 0:
-        print('sdr denominator not numeric! returning 0.')
         return 0
 
     eps = 1e-7

@@ -46,8 +46,11 @@ def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
 
     #print(f'[{audio_signal.min()}, {audio_signal.max()}')
 
-    # Write the output to a WAV file
-    scipy.io.wavfile.write(f'wavs/{output_filename}.wav', sr, np.array(audio_signal * 32767, dtype=np.int16))
+    if output_filename is not None:
+        # Write the output to a WAV file
+        scipy.io.wavfile.write(f'wavs/{output_filename}.wav', sr, np.array(audio_signal * 32767, dtype=np.int16))
+
+    return audio_signal
 
 
 #spectrogram, sr = audio_to_spectrogram('01_Jupiter_vn_vc/AuSep_1_vn_01_Jupiter.wav', save_to_file=True)
