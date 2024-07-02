@@ -6,7 +6,8 @@ from skimage.metrics import structural_similarity as ssim
 from skimage.draw import disk
 import matplotlib.pyplot as plt
 
-from functions import evaluate_separation_ability
+from evaluation_metric_functions import compute_spectral_metrics
+from functions import evaluate_separation_ability, metric_index_mapping
 
 
 # Create synthetic images for testing
@@ -49,5 +50,5 @@ for i, (approx, gt) in enumerate(zip(approxs, gts)):
 plt.show()
 
 # Evaluate the separation ability
-separation_ability = evaluate_separation_ability(approxs, gts)
+separation_ability = compute_spectral_metrics(gts, approxs)[metric_index_mapping['sdr']]
 print(f'Separation Ability: {separation_ability}')

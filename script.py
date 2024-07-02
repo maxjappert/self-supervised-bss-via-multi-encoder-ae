@@ -8,11 +8,11 @@ from functions import *
 
 model, _, _ = train(CircleTriangleDataset(), channels=[16, 32, 64, 128, 256], hidden=96, norm_type='none', batch_size=256, sep_norm='L2', lr=0.001, weight_decay=1e-05, sep_lr=0.8, zero_lr=0.1, z_decay=0.01, max_epochs=100, name='new_attempt', visualise=False, linear=False)
 
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test_alt_1'))
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test_alt_2'))
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test_alt_3'))
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test_alt_4'))
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test_alt_5'))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test_alt_1', num_samples=1))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test_alt_2', num_samples=1))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test_alt_3', num_samples=1))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test_alt_4', num_samples=1))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test_alt_5', num_samples=1))
 
 model, _, _ = train(CircleTriangleDataset(), channels=[24, 48, 96, 144], hidden=96, norm_type='group_norm', batch_size=1024, sep_norm='L1', lr=0.001, weight_decay=1e-05, sep_lr=0.5, zero_lr=0.01, z_decay=0.01, max_epochs=100, name='previously_best', visualise=False, linear=False)
 #model, _, _ = train(CircleTriangleDataset(), channels=[24, 48, 96, 144], hidden=96, norm_type='none', batch_size=1024, sep_norm='L1', lr=0.001, weight_decay=0, sep_lr=1, zero_lr=0.1, z_decay=0, max_epochs=100, visualise=False, linear=False)
@@ -22,11 +22,11 @@ model, _, _ = train(CircleTriangleDataset(), channels=[24, 48, 96, 144], hidden=
 #model = get_model(channels=[24, 48, 96, 144], hidden=96, norm_type='none')
 #model.load_state_dict(torch.load('outputs/2024-03-12/14-40-16/logs/my_experiment/version_0/checkpoints/last.ckpt'))
 
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test1'))
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test2'))
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test3'))
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test4'))
-print(test(model, CircleTriangleDataset(), visualise=True, num_samples=1, name='test5'))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test1', num_samples=1))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test2', num_samples=1))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test3', num_samples=1))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test4', num_samples=1))
+print(test(model, CircleTriangleDataset(), visualise=True, name='test5', num_samples=1))
 
 model, _, _ = train(CircleTriangleDataset(), channels=[16, 32, 64, 128], hidden=128, norm_type='none', batch_size=1024, sep_norm='L2', lr=0.0001, weight_decay=1e-05, sep_lr=0.5, zero_lr=0.01, z_decay=0.01, max_epochs=100, visualise=False, linear=True)
 

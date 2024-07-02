@@ -51,12 +51,12 @@ source_2 = separated_sources[:, 1].reshape(1025, 216)
 print("Range of the source_1:", source_1.min(), "to", source_1.max())
 print("Range of the source_1_gt:", source_1_gt.min(), "to", source_1_gt.max())
 
-spectrogram_to_audio(source_1, 22500, 'ica_s1.wav')
-spectrogram_to_audio(source_2, 22500, 'ica_s2.wav')
-spectrogram_to_audio(source_1_gt, 22500, 'ica_s1_gt.wav')
-spectrogram_to_audio(source_2_gt, 22500, 'ica_s2_gt.wav')
-spectrogram_to_audio(mix1, 22500, 'ica_mix1_gt.wav')
-spectrogram_to_audio(mix2, 22500, 'ica_mix2_gt.wav')
+spectrogram_to_audio(source_1, 'ica_s1.wav')
+spectrogram_to_audio(source_2, 'ica_s2.wav')
+spectrogram_to_audio(source_1_gt, 'ica_s1_gt.wav')
+spectrogram_to_audio(source_2_gt, 'ica_s2_gt.wav')
+spectrogram_to_audio(mix1, 'ica_mix1_gt.wav')
+spectrogram_to_audio(mix2, 'ica_mix2_gt.wav')
 
 
 create_combined_image(mix1, source_1, source_2, source_1_gt, source_2_gt, 'ica.png')

@@ -1,6 +1,7 @@
 import math
 import numbers
 import sys
+import warnings
 
 import librosa
 import mir_eval
@@ -11,36 +12,41 @@ from skimage.metrics import structural_similarity as ssim
 from audio_spectrogram_conversion_functions import spectrogram_to_audio
 
 
-def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
+def compute_spectral_metrics(gt_spectros, approx_spectros):
     """
-    Compute the Spectral Signal-to-Noise Ratio (SNR) between the reference and noisy spectrograms.
+    Compute spectral metrics for source separation evaluation.
 
-    Parameters:
-    reference_spectrogram (np.ndarray): The original source spectrogram.
-    noisy_spectrogram (np.ndarray): The noisy spectrogram.
+    This function calculates the Signal to Distortion Ratio (SDR), Signal to Interference Ratio (SIR),
+    and Signal to Artifacts Ratio (SAR) between the ground truth and approximated spectrograms using
+    `mir_eval.separation.bss_eval_sources`.
+
+    Args:
+        gt_spectros (list of np.ndarray): List of ground truth spectrograms. Each element in the list
+            should be a 2D numpy array representing a spectrogram.
+        approx_spectros (list of np.ndarray): List of approximated spectrograms. Each element in the
+            list should be a 2D numpy array representing a spectrogram.
 
     Returns:
-    float: The average spectral SNR value in dB.
+        tuple: A tuple containing the following elements:
+            - SDR (np.ndarray): Signal to Distortion Ratio for each source.
+            - SIR (np.ndarray): Signal to Interference Ratio for each source.
+            - SAR (np.ndarray): Signal to Artifacts Ratio for each source.
+            - perm (np.ndarray): Optimal permutation of estimated sources to match the ground truth sources.
+
+    Raises:
+        AssertionError: If the lengths of `gt_spectros` and `approx_spectros` are not the same.
     """
-    # Ensure the spectrograms are the same shape
-    assert reference_spectrogram.shape == noisy_spectrogram.shape, "Spectrograms must have the same shape"
 
-    epsilon = 1e-7
+    assert len(gt_spectros) == len(approx_spectros)
 
-    # Compute power spectra
-    ref_power = np.abs(reference_spectrogram) ** 2
-    noise_power = np.abs(reference_spectrogram - noisy_spectrogram) ** 2
+    gt_wavs = []
+    approx_wavs = []
 
-    # Compute SNR for each frequency bin and time frame
-    snr_spectrum = 10 * np.log10(np.maximum(ref_power / np.maximum(noise_power, epsilon), epsilon))
+    for i in range(len(gt_spectros)):
+        gt_wavs.append(spectrogram_to_audio(gt_spectros[i], None))
+        approx_wavs.append(spectrogram_to_audio(approx_spectros[i], None))
 
-    # Average SNR across all frequency bins and time frames
-    avg_snr = np.mean(snr_spectrum)
-
-    if avg_snr == math.nan:
-        print('snr is nan')
-
-    return avg_snr
+    return mir_eval.separation.bss_eval_sources(np.vstack(gt_wavs), np.vstack(approx_wavs))
 
 
 def save_spectrogram_to_file(spectrogram, filename):
@@ -53,8 +59,12 @@ def save_spectrogram_to_file(spectrogram, filename):
     plt.imsave(f'images/{filename}', spectrogram, cmap='gray')
 
 
-
 def compute_spectral_sdr(reference, estimated):
+    warnings.warn(
+        f"compute_spectral_sdr is deprecated and will be removed in a future version",
+        category=DeprecationWarning,
+        stacklevel=2
+    )
     """
     Calculate the Signal-to-Distortion Ratio (SDR) for 2D numpy arrays of spectrograms.
 
@@ -100,8 +110,4 @@ def compute_spectral_sdr(reference, estimated):
     except Exception as e:
         print(e)
         print(denominator)
-
-
-def compute_ssim(gts, approxs):
-    return ssim(gts, approxs, data_range=approxs.max() - approxs.min())
 

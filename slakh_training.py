@@ -53,9 +53,15 @@ model = model_factory(linear=hps['linear'], channels=hps['channels'], hidden=hps
 
 model.load_state_dict(torch.load(f'checkpoints/{name}_best_sdr.pth', map_location=device))
 
-sdr1 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric_function=compute_spectral_sdr, random_visualisation=True)
-sdr2 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'second_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric_function=compute_spectral_sdr, random_visualisation=True)
-sdr3 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True, name=f'third_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'], metric_function=compute_spectral_sdr, random_visualisation=True)
+sdr1 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True,
+            name=f'first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'],
+            random_visualisation=True)
+sdr2 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True,
+            name=f'second_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'],
+            random_visualisation=True)
+sdr3 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True,
+            name=f'third_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'],
+            random_visualisation=True)
 
 print(f'SDRs:')
 print(sdr1)
@@ -65,18 +71,18 @@ print(sdr3)
 if not os.path.exists('wavs'):
     os.mkdir('wavs')
 
-spectrogram_to_audio(f'first_spectro_{name}_mix.png', sr=22050, output_filename=f'first_spectro_{name}_mix', from_file=True)
-spectrogram_to_audio(f'second_spectro_{name}_mix.png', sr=22050, output_filename=f'second_spectro_{name}_mix', from_file=True)
-spectrogram_to_audio(f'third_spectro_{name}_mix.png', sr=22050, output_filename=f'third_spectro_{name}_mix', from_file=True)
-spectrogram_to_audio(f'first_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'first_spectro_{name}_mix_gt', from_file=True)
-spectrogram_to_audio(f'second_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'second_spectro_{name}_mix_gt', from_file=True)
-spectrogram_to_audio(f'third_spectro_{name}_mix_gt.png', sr=22050, output_filename=f'third_spectro_{name}_mix_gt', from_file=True)
+spectrogram_to_audio(f'first_spectro_{name}_mix.png', output_filename=f'first_spectro_{name}_mix', from_file=True)
+spectrogram_to_audio(f'second_spectro_{name}_mix.png', output_filename=f'second_spectro_{name}_mix', from_file=True)
+spectrogram_to_audio(f'third_spectro_{name}_mix.png', output_filename=f'third_spectro_{name}_mix', from_file=True)
+spectrogram_to_audio(f'first_spectro_{name}_mix_gt.png', output_filename=f'first_spectro_{name}_mix_gt', from_file=True)
+spectrogram_to_audio(f'second_spectro_{name}_mix_gt.png', output_filename=f'second_spectro_{name}_mix_gt', from_file=True)
+spectrogram_to_audio(f'third_spectro_{name}_mix_gt.png', output_filename=f'third_spectro_{name}_mix_gt', from_file=True)
 
 for i in range(num_sources):
-    spectrogram_to_audio(f'first_spectro_{name}_{i}.png', sr=22050, output_filename=f'first_spectro_{name}_{i}', from_file=True)
-    spectrogram_to_audio(f'second_spectro_{name}_{i}.png', sr=22050, output_filename=f'second_spectro_{name}_{i}', from_file=True)
-    spectrogram_to_audio(f'third_spectro_{name}_{i}.png', sr=22050, output_filename=f'third_spectro_{name}_{i}', from_file=True)
-    spectrogram_to_audio(f'first_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'first_spectro_{name}_{i}_gt', from_file=True)
-    spectrogram_to_audio(f'second_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'second_spectro_{name}_{i}_gt', from_file=True)
-    spectrogram_to_audio(f'third_spectro_{name}_{i}_gt.png', sr=22050, output_filename=f'third_spectro_{name}_{i}_gt', from_file=True)
+    spectrogram_to_audio(f'first_spectro_{name}_{i}.png', output_filename=f'first_spectro_{name}_{i}', from_file=True)
+    spectrogram_to_audio(f'second_spectro_{name}_{i}.png', output_filename=f'second_spectro_{name}_{i}', from_file=True)
+    spectrogram_to_audio(f'third_spectro_{name}_{i}.png', output_filename=f'third_spectro_{name}_{i}', from_file=True)
+    spectrogram_to_audio(f'first_spectro_{name}_{i}_gt.png', output_filename=f'first_spectro_{name}_{i}_gt', from_file=True)
+    spectrogram_to_audio(f'second_spectro_{name}_{i}_gt.png', output_filename=f'second_spectro_{name}_{i}_gt', from_file=True)
+    spectrogram_to_audio(f'third_spectro_{name}_{i}_gt.png', output_filename=f'third_spectro_{name}_{i}_gt', from_file=True)
 

@@ -41,7 +41,7 @@ def audio_to_spectrogram(audio_file, save_to_file=False):
     return S_db_normalized, sr
 
 
-def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
+def spectrogram_to_audio(spectrogram, output_filename, from_file=False):
     # Load the spectrogram image
     if from_file:
         img = Image.open(f'images/{spectrogram}').convert('L')
@@ -63,7 +63,7 @@ def spectrogram_to_audio(spectrogram, sr, output_filename, from_file=False):
 
     if output_filename is not None:
         # Write the output to a WAV file
-        scipy.io.wavfile.write(f'wavs/{output_filename}.wav', sr, np.array(audio_signal * 32767, dtype=np.int16))
+        scipy.io.wavfile.write(f'wavs/{output_filename}.wav', 44100, np.array(audio_signal * 32767, dtype=np.int16))
 
     return audio_signal * 32767
 

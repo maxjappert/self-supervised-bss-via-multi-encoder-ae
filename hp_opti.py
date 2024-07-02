@@ -61,7 +61,7 @@ def objective(trial):
         traceback.print_exc()
         return -math.inf
 
-    test_score = test(model, dataset_val, visualise=False, metric_function=compute_spectral_sdr, linear=linear)
+    test_score = test(model, dataset_val, visualise=False, linear=linear)
     # Return the best validation loss
     return test_score
 

@@ -21,7 +21,7 @@ from sklearn.model_selection import train_test_split
 from torch import optim, nn
 from torch.optim.lr_scheduler import StepLR
 
-from evaluation_metric_functions import compute_spectral_snr, compute_spectral_sdr
+from evaluation_metric_functions import compute_spectral_sdr, compute_spectral_metrics
 from models.cnn_multi_enc_ae_2d_spectrograms import ConvolutionalAutoencoder
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 
@@ -399,10 +399,10 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         val_losses.append(val_loss)
 
         sdr = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
-                         name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear, metric_function=compute_spectral_sdr)
+                   name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear)
 
         snr = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
-                         name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear, metric_function=compute_spectral_snr)
+                   name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear)
 
         #ssim = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
         #                 name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear, metric_function=compute_ssim)
@@ -429,6 +429,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
 
 def evaluate_separation_ability(ground_truths, approximations, metric_function):
+    print('evaluate_separation_ability is deprecated!')
     # Ensure inputs are numpy arrays
     ground_truths = np.array(ground_truths)
     approximations = np.array(approximations)
@@ -534,7 +535,15 @@ def get_non_linear_separation(model, sample):
         return x_i_preds
 
 
-def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False, metric_function=compute_spectral_snr, random_visualisation=False):
+metric_index_mapping = {
+    'sdr': 0,
+    'sir': 1,
+    'sar': 2,
+}
+
+
+def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False,
+         random_visualisation=False):
     metric_sum = 0
 
     model.eval()
@@ -545,8 +554,8 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
     for sample_index in range(num_samples):
         # Sample random value from test set
 
-        if sample_index == 1 and not random_visualisation:
-            sample = dataset_val[0]
+        if sample_index == 0 and not random_visualisation:
+            sample = dataset_val[1]
         else:
             sample = dataset_val[random.randint(0, len(dataset_val) - 1)]
 
@@ -569,7 +578,8 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
                     save_spectrogram_to_file(x_i_pred, f'{name}_{l}.png')
                     save_spectrogram_to_file(sample[l+1].squeeze(), f'{name}_{l}_gt.png')
 
-        metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], metric_function)
+        #metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], metric_function)
+        metric_sum += np.mean(compute_spectral_metrics([x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], x_i_preds)[metric_index_mapping['sdr']])
 
     return metric_sum / num_samples
 
