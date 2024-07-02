@@ -99,9 +99,9 @@ def create_two_sources_dataset(input_folder, output_folder, split_ratio=0.8):
                     continue
 
                 # Convert chunks to spectrograms and save
-                s1_spectrogram = audio_to_spectrogram(chunk1, f"S{idx1 + 1}_{chunk_idx + 1}", save_to_file=True,
+                s1_spectrogram = audio_to_spectrogram(chunk1, f"S{chunk_idx + 1}", save_to_file=True,
                                                       dest_folder=mix_stems_folder)
-                s2_spectrogram = audio_to_spectrogram(chunk2, f"S{idx2 + 1}_{chunk_idx + 1}", save_to_file=True,
+                s2_spectrogram = audio_to_spectrogram(chunk2, f"S{chunk_idx + 1}", save_to_file=True,
                                                       dest_folder=mix_stems_folder)
 
                 # Merge the two chunks into a single audio
