@@ -94,6 +94,10 @@ def create_two_sources_dataset(input_folder, output_folder, split_ratio=0.8):
                 chunk1 = stem_chunks[idx1][chunk_idx]
                 chunk2 = stem_chunks[idx2][chunk_idx]
 
+                # If a source is silent we don't want it
+                if np.all(np.isclose(chunk1, 0)) or np.all(np.isclose(chunk2, 0)):
+                    continue
+
                 # Convert chunks to spectrograms and save
                 s1_spectrogram = audio_to_spectrogram(chunk1, f"S{idx1 + 1}_{chunk_idx + 1}", save_to_file=True,
                                                       dest_folder=mix_stems_folder)
