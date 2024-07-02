@@ -4,6 +4,21 @@ import matplotlib.pyplot as plt
 import scipy
 from PIL import Image
 
+def numpy_audio_to_spectrogram(np_audio, name=None):
+    y = np_audio
+
+    # Convert to spectrogram
+    S = librosa.stft(y)
+    S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
+
+    # Normalize the spectrogram to 0-255
+    S_db_normalized = (S_db + 80) / 80 * 255
+    S_db_normalized = S_db_normalized.astype(np.uint8)
+
+    if name:
+        plt.imsave(f'images/spectrogram_{name}.png', S_db_normalized, cmap='gray')
+
+    return S_db_normalized
 
 def audio_to_spectrogram(audio_file, save_to_file=False):
     # Load the audio file

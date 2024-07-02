@@ -10,6 +10,7 @@ from skimage.metrics import structural_similarity as ssim
 
 from audio_spectrogram_conversion_functions import spectrogram_to_audio
 
+
 def compute_spectral_snr(reference_spectrogram, noisy_spectrogram):
     """
     Compute the Spectral Signal-to-Noise Ratio (SNR) between the reference and noisy spectrograms.
