@@ -4,7 +4,7 @@ import traceback
 import optuna
 import torch
 
-from evaluation_metric_functions import compute_spectral_snr, compute_spectral_sdr
+from evaluation_metric_functions import compute_spectral_sdr
 from functions import model_factory, CircleTriangleDataset, train, test, TwoSourcesDataset
 
 
@@ -17,7 +17,7 @@ def objective(trial):
     # Suggest hyperparameters
     sep_lr = trial.suggest_float('sep_lr', 0.0, 1.0, step=0.1)
     zero_lr = trial.suggest_float('zero_lr', 0.0, 0.5, step=0.01)
-    hidden = trial.suggest_int('hidden', 16, 1024, step=16)
+    hidden = trial.suggest_int('hidden', 32, 2048, step=32)
     channel_index = trial.suggest_int('channel_index', 0, len(channel_options)-1, step=1)
     norm_type = trial.suggest_categorical('norm_type', ['none', 'batch_norm', 'group_norm'])
     weight_decay = trial.suggest_categorical('weight_decay', [10**(-i) for i in range(6)])
@@ -37,6 +37,8 @@ def objective(trial):
         # Train model
         model, train_losses, val_losses = train(
             channels=channels, hidden=hidden, norm_type=norm_type, num_encoders=2,
+            image_width=431,
+            image_height=1025,
             dataset_train=dataset_train,
             dataset_val=dataset_val,
             dataset_split_ratio=0.8,

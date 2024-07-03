@@ -10,14 +10,17 @@ from PIL import Image
 from sklearn.decomposition import NMF
 import soundfile as sf
 
-from evaluation_metric_functions import compute_spectral_snr, compute_spectral_metrics
+from evaluation_metric_functions import compute_spectral_metrics
 from functions import evaluate_separation_ability, create_combined_image, metric_index_mapping
 
 data_path = 'data/musdb18_two_sources/validation'
 
-total_sdr = 0
+total_nmf_sdr = 0
+total_random_sdr = 0
 num_data = len(os.listdir(data_path))
 counter = 0
+
+# Random benchmark
 
 for i, data in enumerate(os.listdir(data_path)):
 
@@ -44,10 +47,16 @@ for i, data in enumerate(os.listdir(data_path)):
     S2_approx = np.dot(W[:, 1:2], H[1:2, :])
 
     #total_sdr += evaluate_separation_ability([S1_approx, S2_approx], [S1_gt, S2_gt], compute_spectral_snr)
-    total_sdr += compute_spectral_metrics([S1_gt, S2_gt], [S1_approx, S2_approx])[metric_index_mapping['sdr']]
+    total_nmf_sdr += np.mean(compute_spectral_metrics([S1_gt, S2_gt], [S1_approx, S2_approx])[metric_index_mapping['sdr']])
+
+    random_image1 = np.random.randint(0, 256, size=(431, 1025))
+    random_image2 = np.random.randint(0, 256, size=(431, 1025))
+
+    total_random_sdr += np.mean(compute_spectral_metrics([S1_gt, S2_gt], [random_image1, random_image2])[metric_index_mapping['sdr']])
 
     if counter % 10 == 0:
         create_combined_image(S_mix_gt, S1_approx, S2_approx, S1_gt, S2_gt, f'nmf_{i}.png')
-        print(f'After {counter} validation images: ~{total_sdr / counter} ')
+        print(f'After {counter} validation images: ~{total_nmf_sdr / counter} ')
+        print(f'Benchmark Random SDR: ~{total_nmf_sdr / counter} ')
 
 

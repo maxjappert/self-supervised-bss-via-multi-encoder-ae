@@ -621,7 +621,7 @@ def load_model(name):
         hps = json.load(json_file)
 
     model = model_factory(linear=hps['linear'], channels=hps['channels'], hidden=hps['hidden'],
-                          num_encoders=2, image_height=1025, image_width=216, norm_type=hps['norm_type'],
+                          num_encoders=2, image_height=1025, image_width=413, norm_type=hps['norm_type'],
                           use_weight_norm=hps['use_weight_norm']).to(device)
 
     model.load_state_dict(torch.load(f'checkpoints/{name}_best_sdr.pth', map_location=device))

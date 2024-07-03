@@ -108,7 +108,7 @@ class ConvolutionalDecoder(nn.Module):
         #z = torch.concatenate(z, dim=1)
         y = self.decoder(z)
 
-        return transforms.Resize((1025, 216))(y)
+        return transforms.Resize((self.image_h, self.image_w))(y)
 
 
 class LinearConvolutionalAutoencoder(nn.Module):

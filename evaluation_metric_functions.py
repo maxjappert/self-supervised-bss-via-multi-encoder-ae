@@ -49,6 +49,30 @@ def compute_spectral_metrics(gt_spectros, approx_spectros):
     return mir_eval.separation.bss_eval_sources(np.vstack(gt_wavs), np.vstack(approx_wavs))
 
 
+def compute_si_sdr(gt, approx):
+    # Ensure inputs are numpy arrays
+    true_source = np.asarray(gt)
+    estimated_source = np.asarray(approx)
+
+    # Zero-mean normalization
+    true_source = true_source - np.mean(true_source)
+    estimated_source = estimated_source - np.mean(estimated_source)
+
+    # Optimal scaling factor
+    scaling_factor = np.dot(estimated_source, true_source) / np.dot(estimated_source, estimated_source)
+
+    # Scaled estimated source
+    scaled_estimated_source = scaling_factor * estimated_source
+
+    # Compute the error signal
+    error_signal = true_source - scaled_estimated_source
+
+    # Compute SI-SDR
+    sdr_value = 10 * np.log10(np.sum(true_source ** 2) / np.sum(error_signal ** 2))
+
+    return sdr_value
+
+
 def save_spectrogram_to_file(spectrogram, filename):
     """
     Saves a spectrogram image.
