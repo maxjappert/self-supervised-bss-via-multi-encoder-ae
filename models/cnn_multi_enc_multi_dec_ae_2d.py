@@ -79,7 +79,7 @@ class ConvolutionalDecoder(nn.Module):
         self.image_h = image_h
         self.image_w = image_w
         self.num_channels = len(channels)
-        self.channels = channels
+        self.channels = channels + [1]
 
         NORM_TYPES = ['none', 'batch_norm', 'group_norm', 'layer_norm', 'instance_norm']
         assert norm_type in NORM_TYPES, f'Given norm type, {norm_type}, not in {NORM_TYPES}.'
@@ -107,6 +107,8 @@ class ConvolutionalDecoder(nn.Module):
     def forward(self, z):
         #z = torch.concatenate(z, dim=1)
         y = self.decoder(z)
+
+        print(y.shape)
 
         return transforms.Resize((self.image_h, self.image_w))(y)
 

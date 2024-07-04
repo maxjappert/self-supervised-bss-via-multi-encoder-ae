@@ -30,7 +30,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 num_sources = 2
 
-name = 'musdb18_linear_evaluated_optimal_final'
+name = 'musdb18_linear_evaluated_optimal_final_single_output_channel'
 dataset_name = 'musdb18_two_sources'
 
 print(f'name: {name}')
@@ -44,7 +44,7 @@ channel_options = [[8, 16], [8, 16, 32], [8, 16, 32, 64], [8, 16, 32, 64, 128], 
 hps = {'sep_lr': 1.0, 'zero_lr': 0.42, 'hidden': 512, 'channel_index': 2, 'norm_type': 'none', 'weight_decay': 0.0001, 'sep_norm': 'L1', 'batch_size': 32, 'lr': 0.001, 'normalisation': 'minmax', 'linear': True}
 
 #model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources'), batch_size=28, lr=1e-4, hidden=512, dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources'), channels=[24, 48, 96, 144, 196], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=True)
-#model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources', normalisation=hps['normalisation']), batch_size=hps['batch_size'], lr=hps['lr'], hidden=hps['hidden'], dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources', normalisation=hps['normalisation']), channels=channel_options[hps['channel_index']], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=hps['linear'])
+model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources', normalisation=hps['normalisation']), batch_size=hps['batch_size'], lr=hps['lr'], hidden=hps['hidden'], dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources', normalisation=hps['normalisation']), channels=channel_options[hps['channel_index']], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=hps['linear'])
 
 with open(f'hyperparameters/{name}.json', 'r') as file:
     hps = json.load(file)
