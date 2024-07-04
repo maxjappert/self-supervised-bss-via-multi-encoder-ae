@@ -4,8 +4,13 @@ import matplotlib.pyplot as plt
 import scipy
 from PIL import Image
 
-def numpy_audio_to_spectrogram(np_audio, name=None):
-    y = np_audio
+sample_rate = 44100
+chunk_length = 5  # in seconds
+n_fft = 2048
+hop_length = 512
+
+def numpy_audio_to_spectrogram(audio, name=None, from_file=False):
+    y = audio
 
     # Convert to spectrogram
     S = librosa.stft(y)
@@ -20,13 +25,13 @@ def numpy_audio_to_spectrogram(np_audio, name=None):
 
     return S_db_normalized
 
-def audio_to_spectrogram(audio_file, save_to_file=False):
-    # Load the audio file
-    y, sr = librosa.load(audio_file)
-    name = audio_file.stem
+
+def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from_file=False):
+    if from_file:
+        audio, _ = librosa.load(audio, sr=sample_rate)
 
     # Convert to spectrogram
-    S = librosa.stft(y)
+    S = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
     S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
 
     # Normalize the spectrogram to 0-255
@@ -34,12 +39,10 @@ def audio_to_spectrogram(audio_file, save_to_file=False):
     S_db_normalized = S_db_normalized.astype(np.uint8)
 
     # Save the spectrogram to a PNG file
-    if save_to_file:
-        plt.imsave(f' images / spectrogram_{name}.png', S_db_normalized, cmap='gray')
-        np.save(f'images / sr_{name}.npy', sr)
+    if save_to_file and dest_folder:
+        plt.imsave(dest_folder / f'{name}.png', S_db_normalized, cmap='gray')
 
-    return S_db_normalized, sr
-
+    return S_db_normalized
 
 def spectrogram_to_audio(spectrogram, output_filename, from_file=False):
     # Load the spectrogram image

@@ -8,10 +8,8 @@ import librosa
 import numpy as np
 import matplotlib.pyplot as plt
 
-sample_rate = 44100
-chunk_length = 5  # in seconds
-n_fft = 2048
-hop_length = 512
+from audio_spectrogram_conversion_functions import audio_to_spectrogram, sample_rate, chunk_length
+
 
 def slice_audio_file_to_chunks(file_path):
     # Load audio file
@@ -32,20 +30,6 @@ def slice_audio_file_to_chunks(file_path):
 
     return chunks
 
-def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None):
-    # Convert to spectrogram
-    S = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
-    S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
-
-    # Normalize the spectrogram to 0-255
-    S_db_normalized = (S_db + 80) / 80 * 255
-    S_db_normalized = S_db_normalized.astype(np.uint8)
-
-    # Save the spectrogram to a PNG file
-    if save_to_file and dest_folder:
-        plt.imsave(dest_folder / f'{name}.png', S_db_normalized, cmap='gray')
-
-    return S_db_normalized
 
 def create_two_sources_dataset(input_folder, output_folder, split_ratio=0.8):
     # Define paths

@@ -160,7 +160,7 @@ def save_spectrogram_to_file(spectrogram, filename):
 
 def model_factory(input_channels=1, image_height=64, image_width=64, channels=[24, 48, 96, 144], hidden=96,
                   num_encoders=2, norm_type='group_norm',
-                  use_weight_norm=True, linear=False):
+                  use_weight_norm=True, linear=False, kernel_size=7):
     """
     Factory returning a model with the specified parameters.
     :param input_channels: Input channels. Default is 1.
@@ -176,7 +176,7 @@ def model_factory(input_channels=1, image_height=64, image_width=64, channels=[2
     sparse mixing loss (non-linear).
     :return: The model with the specified parameters.
     """
-    return LinearConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm) if linear else ConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm)
+    return LinearConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm, kernel_size=kernel_size) if linear else ConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm, kernel_size=kernel_size)
 
 
 def visualise_predictions(x_gt, x_i_gts, x_pred, x_i_preds: list, name='test'):
@@ -250,7 +250,7 @@ def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, 
         loss += sep_loss(model.decoder) * sep_lr
 
     # Add zero loss
-    z_zeros = [torch.zeros(x.shape[0], model.hidden // model.num_encoders, z[0].shape[-1], z[0].shape[-1]).to(
+    z_zeros = [torch.zeros(x.shape[0], model.hidden // model.num_encoders, z[0].shape[-2], z[0].shape[-1]).to(
         device) for _ in range(model.num_encoders)]
     x_pred_zeros = model.decode(z_zeros, True)
     zero_recon_loss = recon_loss(x_pred_zeros, torch.zeros_like(x_pred_zeros))
@@ -292,7 +292,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
                  num_encoders=2, norm_type='group_norm', image_height=64, image_width=64,
                  use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3,
           lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True,
-          visualise=False, linear=False, test_save_step=1, num_workers=12):
+          visualise=False, linear=False, test_save_step=1, num_workers=12, kernel_size=7):
     """
     Trains a model.
     :param dataset_train: Train dataset.
@@ -327,7 +327,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
     model = model_factory(channels=channels, hidden=hidden,
                               num_encoders=num_encoders, norm_type=norm_type,
-                              use_weight_norm=use_weight_norm, image_height=image_height, image_width=image_width, linear=linear)
+                              use_weight_norm=use_weight_norm, image_height=image_height, image_width=image_width, linear=linear, kernel_size=kernel_size)
     model.to(device)
 
     if name:
@@ -578,8 +578,8 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
                     save_spectrogram_to_file(x_i_pred, f'{name}_{l}.png')
                     save_spectrogram_to_file(sample[l+1].squeeze(), f'{name}_{l}_gt.png')
 
-        #metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], metric_function)
-        metric_sum += np.mean(compute_spectral_metrics([x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], x_i_preds)[metric_index_mapping['sdr']])
+        metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], metric_function)
+        #metric_sum += np.mean(compute_spectral_metrics([x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], x_i_preds)[metric_index_mapping['sdr']])
 
     return metric_sum / num_samples
 

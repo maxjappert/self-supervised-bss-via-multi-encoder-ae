@@ -108,7 +108,9 @@ class ConvolutionalDecoder(nn.Module):
         #z = torch.concatenate(z, dim=1)
         y = self.decoder(z)
 
-        print(y.shape)
+        #print(z.shape)
+        #print(y.shape)
+        #print(transforms.Resize((self.image_h, self.image_w))(y).shape)
 
         return transforms.Resize((self.image_h, self.image_w))(y)
 
@@ -117,7 +119,7 @@ class LinearConvolutionalAutoencoder(nn.Module):
     def __init__(self, input_channels=3, image_h=64, image_w=64,
                  channels=[32, 64, 128], hidden=512, 
                  num_encoders=4, norm_type='none',
-                 use_weight_norm=True,):
+                 use_weight_norm=True, kernel_size=7):
         super(LinearConvolutionalAutoencoder, self).__init__()
         self.image_h = image_h
         self.image_w = image_w
@@ -139,7 +141,7 @@ class LinearConvolutionalAutoencoder(nn.Module):
             self.decoders.append(ConvolutionalDecoder(image_h=image_h, image_w=image_w,
                                             channels=[channels[0]] + channels,
                                             hidden=hidden//num_encoders, num_encoders=num_encoders,
-                                            norm_type=norm_type))
+                                            norm_type=norm_type, kernel_size=kernel_size))
 
 
         # output layer
@@ -187,7 +189,6 @@ class LinearConvolutionalAutoencoder(nn.Module):
         return y
 
 
-
     def forward_single_encoder(self, x, idx):
         z = self.encode_single_encoder(x, idx)
         y = self.decode_single_decoder(z, idx)
@@ -228,5 +229,5 @@ class LinearConvolutionalAutoencoder(nn.Module):
     def forward(self, x):
         z = self.encode(x)
         y = self.decode(z)
-        
+
         return y, z
