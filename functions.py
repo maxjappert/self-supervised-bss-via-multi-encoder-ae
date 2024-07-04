@@ -428,7 +428,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     return model, train_losses, val_losses
 
 
-def evaluate_separation_ability(ground_truths, approximations, metric_function):
+def evaluate_separation_ability(ground_truths, approximations, metric_function=compute_spectral_sdr):
     print('evaluate_separation_ability is deprecated!')
     # Ensure inputs are numpy arrays
     ground_truths = np.array(ground_truths)

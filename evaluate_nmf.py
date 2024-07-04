@@ -47,16 +47,16 @@ for i, data in enumerate(os.listdir(data_path)):
     S2_approx = np.dot(W[:, 1:2], H[1:2, :])
 
     #total_sdr += evaluate_separation_ability([S1_approx, S2_approx], [S1_gt, S2_gt], compute_spectral_snr)
-    total_nmf_sdr += np.mean(compute_spectral_metrics([S1_gt, S2_gt], [S1_approx, S2_approx])[metric_index_mapping['sdr']])
+    total_nmf_sdr += evaluate_separation_ability([S1_gt, S2_gt], [S1_approx, S2_approx])
 
     random_image1 = np.random.randint(0, 256, size=(431, 1025))
     random_image2 = np.random.randint(0, 256, size=(431, 1025))
 
-    total_random_sdr += np.mean(compute_spectral_metrics([S1_gt, S2_gt], [random_image1, random_image2])[metric_index_mapping['sdr']])
+    total_random_sdr += evaluate_separation_ability([S1_gt, S2_gt], [random_image1, random_image2])
 
     if counter % 10 == 0:
         create_combined_image(S_mix_gt, S1_approx, S2_approx, S1_gt, S2_gt, f'nmf_{i}.png')
         print(f'After {counter} validation images: ~{total_nmf_sdr / counter} ')
-        print(f'Benchmark Random SDR: ~{total_nmf_sdr / counter} ')
+        print(f'Benchmark Random SDR: ~{total_random_sdr / counter} ')
 
 
