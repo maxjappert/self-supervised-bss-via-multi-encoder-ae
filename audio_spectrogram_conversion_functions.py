@@ -9,22 +9,6 @@ chunk_length = 5  # in seconds
 n_fft = 2048
 hop_length = 512
 
-def numpy_audio_to_spectrogram(audio, name=None, from_file=False):
-    y = audio
-
-    # Convert to spectrogram
-    S = librosa.stft(y)
-    S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
-
-    # Normalize the spectrogram to 0-255
-    S_db_normalized = (S_db + 80) / 80 * 255
-    S_db_normalized = S_db_normalized.astype(np.uint8)
-
-    if name:
-        plt.imsave(f'images/spectrogram_{name}.png', S_db_normalized, cmap='gray')
-
-    return S_db_normalized
-
 
 def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from_file=False):
     if from_file:
@@ -33,6 +17,7 @@ def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from
     # Convert to spectrogram
     S = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
     S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
+    phase = np.angle(S)
 
     # Normalize the spectrogram to 0-255
     S_db_normalized = (S_db + 80) / 80 * 255
@@ -41,15 +26,15 @@ def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from
     # Save the spectrogram to a PNG file
     if save_to_file and dest_folder:
         plt.imsave(dest_folder / f'{name}.png', S_db_normalized, cmap='gray')
+        np.save(dest_folder / f'{name}_phase.npy', S_db_normalized)
 
-    return S_db_normalized
+    return S_db_normalized, phase
 
-def spectrogram_to_audio(spectrogram, output_filename, from_file=False):
+def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=False):
     # Load the spectrogram image
     if from_file:
         img = Image.open(f'images/{spectrogram}').convert('L')
         S_db_imported = np.array(img)
-        #sr = np.load(sr).item()
     else:
         S_db_imported = spectrogram
 
@@ -60,9 +45,12 @@ def spectrogram_to_audio(spectrogram, output_filename, from_file=False):
     S_imported = librosa.db_to_amplitude(S_db_imported)
 
     # Use Griffin-Lim algorithm to approximate the phase and reconstruct the audio
-    audio_signal = librosa.core.griffinlim(S_imported)
+    if phase is None:
+        audio_signal = librosa.core.griffinlim(S_imported)
+    else:
+        assert S_imported.shape == phase.shape
+        audio_signal = librosa.istft(S_imported * np.exp(1j * phase))
 
-    #print(f'[{audio_signal.min()}, {audio_signal.max()}')
 
     if output_filename is not None:
         # Write the output to a WAV file

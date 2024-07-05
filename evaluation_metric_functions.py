@@ -12,7 +12,7 @@ from skimage.metrics import structural_similarity as ssim
 from audio_spectrogram_conversion_functions import spectrogram_to_audio
 
 
-def compute_spectral_metrics(gt_spectros, approx_spectros):
+def compute_spectral_metrics(gt_spectros, approx_spectros, phases):
     """
     Compute spectral metrics for source separation evaluation.
 
@@ -37,40 +37,16 @@ def compute_spectral_metrics(gt_spectros, approx_spectros):
         AssertionError: If the lengths of `gt_spectros` and `approx_spectros` are not the same.
     """
 
-    assert len(gt_spectros) == len(approx_spectros)
+    assert len(gt_spectros) == len(approx_spectros) == len(phases)
 
     gt_wavs = []
     approx_wavs = []
 
     for i in range(len(gt_spectros)):
-        gt_wavs.append(spectrogram_to_audio(gt_spectros[i], None))
-        approx_wavs.append(spectrogram_to_audio(approx_spectros[i], None))
+        gt_wavs.append(spectrogram_to_audio(gt_spectros[i], None, phase=phases[i]))
+        approx_wavs.append(spectrogram_to_audio(approx_spectros[i], None, phase=phases[i]))
 
     return mir_eval.separation.bss_eval_sources(np.vstack(gt_wavs), np.vstack(approx_wavs))
-
-
-def compute_si_sdr(gt, approx):
-    # Ensure inputs are numpy arrays
-    true_source = np.asarray(gt)
-    estimated_source = np.asarray(approx)
-
-    # Zero-mean normalization
-    true_source = true_source - np.mean(true_source)
-    estimated_source = estimated_source - np.mean(estimated_source)
-
-    # Optimal scaling factor
-    scaling_factor = np.dot(estimated_source, true_source) / np.dot(estimated_source, estimated_source)
-
-    # Scaled estimated source
-    scaled_estimated_source = scaling_factor * estimated_source
-
-    # Compute the error signal
-    error_signal = true_source - scaled_estimated_source
-
-    # Compute SI-SDR
-    sdr_value = 10 * np.log10(np.sum(true_source ** 2) / np.sum(error_signal ** 2))
-
-    return sdr_value
 
 
 def save_spectrogram_to_file(spectrogram, filename):
@@ -84,11 +60,6 @@ def save_spectrogram_to_file(spectrogram, filename):
 
 
 def compute_spectral_sdr(reference, estimated):
-    warnings.warn(
-        f"compute_spectral_sdr is deprecated and will be removed in a future version",
-        category=DeprecationWarning,
-        stacklevel=2
-    )
     """
     Calculate the Signal-to-Distortion Ratio (SDR) for 2D numpy arrays of spectrograms.
 

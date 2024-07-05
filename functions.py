@@ -93,6 +93,9 @@ class TwoSourcesDataset(Dataset):
         """
         self.data_folder_names = []
 
+        self.name = name
+        self.split = split
+
         self.master_path = os.path.join('data', name, split)
 
         for data_folder in os.listdir(self.master_path):
@@ -100,6 +103,11 @@ class TwoSourcesDataset(Dataset):
             self.data_folder_names.append(data_folder)
 
         self.normalisation = normalisation
+
+    def get_phase(self, idx):
+        return (np.load(os.path.join('data', self.name, self.split, self.data_folder_names[idx], 'mix_phase.npy')),
+                np.load(os.path.join('data', self.name, self.split, self.data_folder_names[idx], 'stems', 'S0_phase.npy')),
+                np.load(os.path.join('data', self.name, self.split, self.data_folder_names[idx], 'stems', 'S1_phase.npy')))
 
     def __len__(self):
         return len(self.data_folder_names)
@@ -142,8 +150,9 @@ class TwoSourcesDataset(Dataset):
         row = [chunks_master]
 
         for stem in os.listdir(os.path.join(self.master_path, self.data_folder_names[idx], 'stems')):
-            stem_path = os.path.join(self.master_path, self.data_folder_names[idx], 'stems', stem)
-            row.append(np.array(Image.open(stem_path).convert('L'), dtype=np.float32))
+            if not stem.endswith('.npy'):
+                stem_path = os.path.join(self.master_path, self.data_folder_names[idx], 'stems', stem)
+                row.append(np.array(Image.open(stem_path).convert('L'), dtype=np.float32))
 
         return self.row_z_score(row) if self.normalisation == 'z-score' else self.row_min_max(row)
 
@@ -429,7 +438,6 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
 
 def evaluate_separation_ability(ground_truths, approximations, metric_function=compute_spectral_sdr):
-    print('evaluate_separation_ability is deprecated!')
     # Ensure inputs are numpy arrays
     ground_truths = np.array(ground_truths)
     approximations = np.array(approximations)
@@ -472,7 +480,7 @@ def evaluate_separation_ability(ground_truths, approximations, metric_function=c
         sys.exit(0)
 
     # Compute the overall quality score
-    total = metric_matrix[row_ind, col_ind].sum()
+    total = np.mean(metric_matrix[row_ind, col_ind])
     mean_mse = total / num_truths
 
     return mean_mse
@@ -551,13 +559,15 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
     if not os.path.exists('images'):
         os.makedirs('images')
 
-    for sample_index in range(num_samples):
+    for running_index in range(num_samples):
         # Sample random value from test set
 
-        if sample_index == 0 and not random_visualisation:
-            sample = dataset_val[1]
+        if running_index == 0 and not random_visualisation:
+            sample_index = 1
+            sample = dataset_val[sample_index]
         else:
-            sample = dataset_val[random.randint(0, len(dataset_val) - 1)]
+            sample_index = random.randint(0, len(dataset_val) - 1)
+            sample = dataset_val[sample_index]
 
         x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
         x_pred, _ = model(x)
@@ -567,7 +577,7 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
 
         x_i_preds = get_linear_separation(model, sample) if linear else get_non_linear_separation(model, sample)
 
-        if visualise and sample_index == 0:
+        if visualise and running_index == 0:
             if single_file:
                 visualise_predictions(sample[0].squeeze(), [x_i.squeeze() for x_i in sample[1:]], x_pred, x_i_preds, name=name)
                 print(f'{name}.png saved')
@@ -578,8 +588,10 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
                     save_spectrogram_to_file(x_i_pred, f'{name}_{l}.png')
                     save_spectrogram_to_file(sample[l+1].squeeze(), f'{name}_{l}_gt.png')
 
-        metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], metric_function)
-        #metric_sum += np.mean(compute_spectral_metrics([x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], x_i_preds)[metric_index_mapping['sdr']])
+        #metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
+
+        phases = dataset_val.get_phase(sample_index)
+        metric_sum += np.mean(compute_spectral_metrics([x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], x_i_preds, phases=phases[1:])[metric_index_mapping['sdr']])
 
     return metric_sum / num_samples
 

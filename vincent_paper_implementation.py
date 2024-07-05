@@ -1,12 +1,14 @@
+import sys
+
 import matplotlib.pyplot as plt
 import numpy as np
 import fast_bss_eval
 import scipy
 from PIL import Image
 from scipy.io import wavfile
+import mir_eval
 
-from audio_spectrogram_conversion_functions import spectrogram_to_audio, audio_to_spectrogram, \
-    numpy_audio_to_spectrogram
+from audio_spectrogram_conversion_functions import spectrogram_to_audio, audio_to_spectrogram
 from evaluation_metric_functions import compute_spectral_sdr
 from functions import load_model, TwoSourcesDataset, test, get_linear_separation, get_reconstruction, \
     save_spectrogram_to_file
@@ -14,9 +16,9 @@ from functions import load_model, TwoSourcesDataset, test, get_linear_separation
 def get_reconstruction_set(index, model_name='musdb18_linear_evaluated_optimal_final'):
     model = load_model(model_name)
 
-    val_dataset = TwoSourcesDataset(split='validation', name='musdb18_two_sources')
+    dataset = TwoSourcesDataset(split='validation', name='musdb18_two_sources')
 
-    datapoint = val_dataset[index]
+    datapoint = dataset[index]
 
     recon_spectro_mix = get_reconstruction(model, datapoint)
     recon_spectro_s1, recon_spectro_s2 = get_linear_separation(model, datapoint)
@@ -29,34 +31,28 @@ def get_reconstruction_set(index, model_name='musdb18_linear_evaluated_optimal_f
     save_spectrogram_to_file(gt_spectro_s1, 'spectro_gt_s1.png')
     save_spectrogram_to_file(gt_spectro_s2, 'spectro_gt_s2.png')
 
-    wav_gt_mix = spectrogram_to_audio('spectro_gt_mix.png', 22050, 'wav_gt_mix', from_file=True)
-    wav_gt_s1 = spectrogram_to_audio('spectro_gt_s1.png', 22050, 'wav_gt_s1', from_file=True)
-    wav_gt_s2 = spectrogram_to_audio('spectro_gt_s2.png', 22050, 'wav_gt_s2', from_file=True)
+    phases = dataset.get_phase(index)
+
+    wav_gt_mix = spectrogram_to_audio('spectro_gt_mix.png', 'wav_gt_mix', phase=phases[0], from_file=True)
+    wav_gt_s1 = spectrogram_to_audio('spectro_gt_s1.png', 'wav_gt_s1', phase=phases[1], from_file=True)
+    wav_gt_s2 = spectrogram_to_audio('spectro_gt_s2.png', 'wav_gt_s2', phase=phases[2], from_file=True)
 
     save_spectrogram_to_file(recon_spectro_mix, 'spectro_recon_mix.png')
     save_spectrogram_to_file(recon_spectro_s1, 'spectro_recon_s1.png')
     save_spectrogram_to_file(recon_spectro_s2, 'spectro_recon_s2.png')
 
-    wav_recon_mix = spectrogram_to_audio('spectro_recon_mix.png', 22050, 'wav_recon_mix', from_file=True)
-    wav_recon_s1 = spectrogram_to_audio('spectro_recon_s1.png', 22050, 'wav_recon_s1', from_file=True)
-    wav_recon_s2 = spectrogram_to_audio('spectro_recon_s2.png', 22050, 'wav_recon_s2', from_file=True)
+    wav_recon_mix = spectrogram_to_audio('spectro_recon_mix.png',  'wav_recon_mix', phase=phases[0], from_file=True)
+    wav_recon_s1 = spectrogram_to_audio('spectro_recon_s1.png', 'wav_recon_s1', phase=phases[1], from_file=True)
+    wav_recon_s2 = spectrogram_to_audio('spectro_recon_s2.png', 'wav_recon_s2', phase=phases[2], from_file=True)
 
-    return wav_gt_mix, wav_gt_s1, wav_gt_s2, wav_recon_mix, wav_recon_s1, wav_recon_s2
+    return wav_gt_mix, wav_gt_s1, wav_gt_s2, wav_recon_mix, wav_recon_s1, wav_recon_s2, gt_spectro_mix, gt_spectro_s1, gt_spectro_s2, recon_spectro_mix, recon_spectro_s1, recon_spectro_s2
 
-wav_gt_mix, wav_gt_s1, wav_gt_s2, wav_recon_mix, wav_recon_s1, wav_recon_s2 = get_reconstruction_set(19)
-wav_gt_mix1, wav_gt_s11, wav_gt_s21, wav_recon_mix1, wav_recon_s11, wav_recon_s21 = get_reconstruction_set(19)
-wav_gt_mix2, wav_gt_s12, wav_gt_s22, wav_recon_mix2, wav_recon_s12, wav_recon_s22 = get_reconstruction_set(19)
 
-print(np.isclose(wav_gt_mix1, wav_gt_mix2).sum())
-print(np.isclose(numpy_audio_to_spectrogram(wav_gt_mix1), numpy_audio_to_spectrogram(wav_gt_mix2)).sum())
+wav_gt_mix, wav_gt_s1, wav_gt_s2, wav_recon_mix, wav_recon_s1, wav_recon_s2, gt_spectro_mix, gt_spectro_s1, gt_spectro_s2, recon_spectro_mix, recon_spectro_s1, recon_spectro_s2 = get_reconstruction_set(2)
+wav_gt_mix1, wav_gt_s11, wav_gt_s21, wav_recon_mix1, wav_recon_s11, wav_recon_s21, _, _, _, _, _, _ = get_reconstruction_set(2)
+wav_gt_mix2, wav_gt_s12, wav_gt_s22, wav_recon_mix2, wav_recon_s12, wav_recon_s22, _, _, _, _, _, _ = get_reconstruction_set(2)
 
-plt.imsave(f'images/v1.png', numpy_audio_to_spectrogram(wav_gt_mix1), cmap='gray')
-plt.imsave(f'images/v2.png', numpy_audio_to_spectrogram(wav_gt_mix2), cmap='gray')
-
-#print(wav_gt_s11)
-#print(wav_gt_s2)
-#print(wav_recon_s1)
-#print(wav_recon_s2)
+audio_to_spectrogram(wav_recon_s1, 'spectro_gt_s1_reconverted.png')
 
 def compute_decomposition(wav_gt_s1, wav_gt_s2, wav_recon_s1, wav_recon_s2, source_idx):
     """
@@ -98,32 +94,27 @@ def compute_decomposition(wav_gt_s1, wav_gt_s2, wav_recon_s1, wav_recon_s2, sour
     return s_target, e_interf, e_noise, e_artif
 
 
-s1_target, e1_interf, e1_noise, e1_artif = compute_decomposition(wav_gt_s1, wav_gt_s2, wav_recon_s1, wav_recon_s2, 0)
-s2_target, e2_interf, e2_noise, e2_artif = compute_decomposition(wav_gt_s1, wav_gt_s2, wav_recon_s1, wav_recon_s2, 1)
-
-# print(s1_target)
-# print(e1_interf)
-# print(e1_noise)
-# print(e1_artif)
-#
-# scipy.io.wavfile.write(f'wavs/s1.wav', 22050, np.array(wav_gt_s1, dtype=np.int16))
-# scipy.io.wavfile.write(f'wavs/s1_target.wav', 22050, np.array(s1_target, dtype=np.int16))
-# scipy.io.wavfile.write(f'wavs/e1_interf.wav', 22050, np.array(e1_interf, dtype=np.int16))
-# scipy.io.wavfile.write(f'wavs/e1_noise.wav', 22050, np.array(e1_noise, dtype=np.int16))
-# scipy.io.wavfile.write(f'wavs/e1_artif.wav', 22050, np.array(e1_artif, dtype=np.int16))
-#
-numpy_audio_to_spectrogram(wav_gt_s1, name='s1.png')
-numpy_audio_to_spectrogram(s1_target, name='s1_target.png')
-numpy_audio_to_spectrogram(e1_interf, name='e1_interf.png')
-numpy_audio_to_spectrogram(e1_noise, name='e1_noise.png')
-numpy_audio_to_spectrogram(e1_artif, name='e1_artif.png')
-numpy_audio_to_spectrogram(e1_interf + e1_noise + e1_artif, name='sdr_denominator')
-
-
 def compute_sdr(s_target, e_interf, e_noise, e_artif):
     return 10 * np.log10(np.sum(s_target) ** 2 / np.sum(e_interf + e_noise + e_artif) ** 2)
 
 
-print(compute_sdr(s1_target, e1_interf, e1_noise, e1_artif))
-print(compute_sdr(s2_target, e2_interf, e2_noise, e2_artif))
+for _ in range(5):
+    wav_gt_mix, wav_gt_s1, wav_gt_s2, wav_recon_mix, wav_recon_s1, wav_recon_s2, gt_spectro_mix, gt_spectro_s1, gt_spectro_s2, recon_spectro_mix, recon_spectro_s1, recon_spectro_s2 = get_reconstruction_set(2)
 
+    s1_target, e1_interf, e1_noise, e1_artif = compute_decomposition(wav_gt_s1, wav_gt_s2, wav_recon_s1, wav_recon_s2, 0)
+    s2_target, e2_interf, e2_noise, e2_artif = compute_decomposition(wav_gt_s1, wav_gt_s2, wav_recon_s1, wav_recon_s2, 1)
+
+    print(f'Manual SDR: [{compute_sdr(s1_target, e1_interf, e1_noise, e1_artif)}, {compute_sdr(s2_target, e2_interf, e2_noise, e2_artif)}]')
+
+    print(f'Old spectral SDR: [{compute_spectral_sdr(gt_spectro_s1, recon_spectro_s1)}, {compute_spectral_sdr(gt_spectro_s2, recon_spectro_s2)}]')
+
+    #print(f'Manual SI-SDR: [{compute_si_sdr(wav_gt_s1, wav_recon_s2)}, {compute_si_sdr(wav_gt_s2, wav_recon_s2)}]')
+
+    print('\nMir_eval_SDR:')
+    print(mir_eval.separation.bss_eval_sources(np.vstack([wav_gt_s1, wav_gt_s2]), np.vstack([wav_recon_s1, wav_recon_s2])))
+    print('\n')
+
+#print(mir_eval.separation.bss_eval_sources(np.vstack([wav_gt_s1, wav_gt_s2]), np.vstack([wav_recon_s1, wav_recon_s2])))
+#print(mir_eval.separation.bss_eval_sources(np.vstack([wav_gt_s2, wav_gt_s1]), np.vstack([wav_recon_s1, wav_recon_s2])))
+#print(mir_eval.separation.bss_eval_sources(np.vstack([wav_gt_s11, wav_gt_s21]), np.vstack([wav_recon_s11, wav_recon_s21])))
+#print(mir_eval.separation.bss_eval_sources(np.vstack([wav_gt_s12, wav_gt_s22]), np.vstack([wav_recon_s12, wav_recon_s22])))
