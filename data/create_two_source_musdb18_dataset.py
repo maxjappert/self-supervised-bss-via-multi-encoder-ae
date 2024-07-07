@@ -2,6 +2,7 @@ import os
 import random
 import shutil
 import subprocess
+import sys
 from itertools import combinations
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import librosa
 import numpy as np
 import matplotlib.pyplot as plt
 
+sys.path.append('../')
 from audio_spectrogram_conversion_functions import audio_to_spectrogram, sample_rate, chunk_length
 
 

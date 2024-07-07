@@ -49,22 +49,22 @@ if __name__ == '__main__':
         S1_approx, S2_approx = nmf_approx_two_sources(S_mix_gt)
 
         S1_gt = np.array(
-            Image.open(os.path.join(data_path, data, 'stems', os.listdir(os.path.join(data_path, data, 'stems'))[0])))
+            Image.open(os.path.join(data_path, data, 'stems', 'S0.png')))
         S2_gt = np.array(
-            Image.open(os.path.join(data_path, data, 'stems', os.listdir(os.path.join(data_path, data, 'stems'))[1])))
+            Image.open(os.path.join(data_path, data, 'stems', 'S1.png')))
 
         S1_gt = np.mean(S1_gt, axis=2)
         S2_gt = np.mean(S2_gt, axis=2)
 
         #total_sdr += evaluate_separation_ability([S1_approx, S2_approx], [S1_gt, S2_gt], compute_spectral_snr)
 
-        phases = np.load()
-        total_nmf_sdr += compute_spectral_metrics([S1_gt, S2_gt], [S1_approx, S2_approx], [None, None, None])
+        phases = [np.load(os.path.join(data_path, data, 'stems', 'S0_phase.npy')), np.load(os.path.join(data_path, data, 'stems', 'S1_phase.npy'))]
+        total_nmf_sdr += np.mean(compute_spectral_metrics([S1_gt, S2_gt], [S1_approx, S2_approx], phases)[metric_index_mapping['sdr']])
 
         random_image1 = np.random.randint(0, 256, size=(1025, 431))
         random_image2 = np.random.randint(0, 256, size=(1025, 431))
 
-        total_random_sdr += evaluate_separation_ability([S1_gt, S2_gt], [random_image1, random_image2])
+        total_random_sdr += np.mean(compute_spectral_metrics([S1_gt, S2_gt], [random_image1, random_image2], phases)[metric_index_mapping['sdr']])
 
         if counter % 10 == 0:
             create_combined_image(S_mix_gt, S1_approx, S2_approx, S1_gt, S2_gt, f'nmf_{i}.png')

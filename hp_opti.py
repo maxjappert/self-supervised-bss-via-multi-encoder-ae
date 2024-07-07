@@ -22,7 +22,7 @@ def objective(trial):
     norm_type = trial.suggest_categorical('norm_type', ['none', 'batch_norm', 'group_norm'])
     weight_decay = trial.suggest_categorical('weight_decay', [10**(-i) for i in range(6)])
     sep_norm = trial.suggest_categorical('sep_norm', ['L1', 'L2'])
-    batch_size = trial.suggest_categorical('batch_size', [2**i for i in range(9)])
+    batch_size = trial.suggest_categorical('batch_size', [2**i for i in range(7)])
     lr = trial.suggest_categorical('lr', [10**(-i) for i in range(6)])
     normalisation = trial.suggest_categorical('normalisation', ['minmax', 'z-score'])
     linear = trial.suggest_categorical('linear', [True, False])
@@ -30,8 +30,8 @@ def objective(trial):
     channels = channel_options[channel_index]
 
     # Load dataset
-    dataset_train = TwoSourcesDataset(split='train', name='musdb18_two_sources', normalisation=normalisation)
-    dataset_val = TwoSourcesDataset(split='validation', name='musdb18_two_sources', normalisation=normalisation)
+    dataset_train = TwoSourcesDataset(split='train', name='musdb18_two_sources', normalisation=normalisation, debug=False)
+    dataset_val = TwoSourcesDataset(split='validation', name='musdb18_two_sources', normalisation=normalisation, debug=False)
 
     try:
         # Train model

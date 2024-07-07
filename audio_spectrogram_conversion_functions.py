@@ -36,7 +36,8 @@ def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=Fal
         img = Image.open(f'images/{spectrogram}').convert('L')
         S_db_imported = np.array(img)
     else:
-        S_db_imported = spectrogram
+        S_db_imported = spectrogram * 255
+        #print(S_db_imported)
 
     # Convert back to the original dB scale
     S_db_imported = S_db_imported.astype(np.float32) / 255 * 80 - 80
@@ -48,7 +49,7 @@ def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=Fal
     if phase is None:
         audio_signal = librosa.core.griffinlim(S_imported)
     else:
-        assert S_imported.shape == phase.shape
+        assert S_imported.shape == phase.shape, f'{S_imported.shape} mismatched {phase.shape}'
         audio_signal = librosa.istft(S_imported * np.exp(1j * phase))
 
 

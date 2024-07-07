@@ -1,5 +1,6 @@
 import math
 import numbers
+import os
 import sys
 import warnings
 
@@ -7,6 +8,7 @@ import librosa
 import mir_eval
 import numpy as np
 from matplotlib import pyplot as plt
+from mpl_toolkits.axes_grid1 import ImageGrid
 from skimage.metrics import structural_similarity as ssim
 
 from audio_spectrogram_conversion_functions import spectrogram_to_audio
@@ -43,10 +45,14 @@ def compute_spectral_metrics(gt_spectros, approx_spectros, phases):
     approx_wavs = []
 
     for i in range(len(gt_spectros)):
-        gt_wavs.append(spectrogram_to_audio(gt_spectros[i], None, phase=phases[i]))
-        approx_wavs.append(spectrogram_to_audio(approx_spectros[i], None, phase=phases[i]))
+        gt_wavs.append(spectrogram_to_audio(gt_spectros[i], f'debug_gt_{i}', phase=phases[i]))
+        approx_wavs.append(spectrogram_to_audio(approx_spectros[i], f'debug_recon{i}', phase=phases[i]))
 
-    return mir_eval.separation.bss_eval_sources(np.vstack(gt_wavs), np.vstack(approx_wavs))
+    separation = mir_eval.separation.bss_eval_sources(np.vstack(gt_wavs), np.vstack(approx_wavs))
+
+    visualise_predictions(np.zeros_like(gt_spectros[0]), gt_spectros, np.zeros_like(approx_spectros[0]), approx_spectros, name='debug')
+
+    return separation
 
 
 def save_spectrogram_to_file(spectrogram, filename):
@@ -106,3 +112,45 @@ def compute_spectral_sdr(reference, estimated):
         print(e)
         print(denominator)
 
+
+def visualise_predictions(x_gt, x_i_gts, x_pred, x_i_preds: list, name='test'):
+    """
+    Save an image file containing a visualisation of the separation.
+    :param x_gt: Mixed ground truth spectrogram.
+    :param x_i_gts: Array of ground truth stem spectrograms.
+    :param x_pred: Approximated mixed spectrogram.
+    :param x_i_preds: Approximated stem spectrograms as array.
+    :param name: Filename.
+    :return: None.
+    """
+
+    assert len(x_i_preds) == len(x_i_gts)
+
+    num_sources = len(x_i_preds)
+
+    fig = plt.figure(figsize=(2*num_sources, 6))
+    grid = ImageGrid(fig, 111,
+                    nrows_ncols=(2, 1 + num_sources),
+                    axes_pad=0.15,
+                    )
+
+    #labels = ['Mixed', 'Circle', 'Triangle']
+    #images = [sample, circle, triangle, None, x_pred] + x_i_preds
+    images = [x_gt] + x_i_gts + [x_pred] + x_i_preds
+    y_labels = ['True', 'Pred.']
+    for i, (ax, im) in enumerate(zip(grid, images)):
+        #if i < num_sources + 1:
+        #    ax.set_title(labels[i])
+        #if i % 4 == 0:
+        #    ax.set_ylabel(y_labels[(i)//4])
+        #if i+1 == len(images):
+        #    ax.set_title('(Dead Enc.)', color='gray', fontsize=12)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.imshow(im, cmap='gray')
+
+    if not os.path.exists('images'):
+        os.mkdir('images')
+
+    plt.savefig(f'images/{name}.png')
+    #plt.show()

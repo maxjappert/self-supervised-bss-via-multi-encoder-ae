@@ -10,20 +10,15 @@ import librosa
 from PIL import Image
 from datetime import datetime
 
-import torchvision.transforms as transforms
-
-
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from mpl_toolkits.axes_grid1 import ImageGrid
-from sklearn.model_selection import train_test_split
 from torch import optim, nn
 from torch.optim.lr_scheduler import StepLR
 
-from evaluation_metric_functions import compute_spectral_sdr, compute_spectral_metrics
+from evaluation_metric_functions import compute_spectral_sdr, compute_spectral_metrics, visualise_predictions
 from models.cnn_multi_enc_ae_2d_spectrograms import ConvolutionalAutoencoder
-from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
+from torch.utils.data import Dataset, DataLoader
 
 from models.cnn_multi_enc_multi_dec_ae_2d import LinearConvolutionalAutoencoder
 from models.separation_loss import WeightSeparationLoss
@@ -44,7 +39,7 @@ def set_seed(seed):
 
 
 # Set seed for reproducibility
-set_seed(42)
+#set_seed(42)
 
 class CircleTriangleDataset(Dataset):
     """
@@ -85,7 +80,7 @@ class TwoSourcesDataset(Dataset):
     """
     For any dataset where the mixes have two sources in the format of the Slakh dataset.
     """
-    def __init__(self, split: str, name='slakh_two_sources_preprocessed', normalisation='minmax'):
+    def __init__(self, split: str, name='slakh_two_sources_preprocessed', normalisation='minmax', debug=False):
         """
         Initialise the two source dataset.
         :param split: "train"/"validation"/"test"
@@ -99,7 +94,9 @@ class TwoSourcesDataset(Dataset):
         self.master_path = os.path.join('data', name, split)
 
         for data_folder in os.listdir(self.master_path):
-            #if random.random() < 0.05:
+            if random.random() < 0.99 and debug:
+                continue
+
             self.data_folder_names.append(data_folder)
 
         self.normalisation = normalisation
@@ -186,49 +183,6 @@ def model_factory(input_channels=1, image_height=64, image_width=64, channels=[2
     :return: The model with the specified parameters.
     """
     return LinearConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm, kernel_size=kernel_size) if linear else ConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm, kernel_size=kernel_size)
-
-
-def visualise_predictions(x_gt, x_i_gts, x_pred, x_i_preds: list, name='test'):
-    """
-    Save an image file containing a visualisation of the separation.
-    :param x_gt: Mixed ground truth spectrogram.
-    :param x_i_gts: Array of ground truth stem spectrograms.
-    :param x_pred: Approximated mixed spectrogram.
-    :param x_i_preds: Approximated stem spectrograms as array.
-    :param name: Filename.
-    :return: None.
-    """
-
-    assert len(x_i_preds) == len(x_i_gts)
-
-    num_sources = len(x_i_preds)
-
-    fig = plt.figure(figsize=(2*num_sources, 6))
-    grid = ImageGrid(fig, 111,
-                    nrows_ncols=(2, 1 + num_sources),
-                    axes_pad=0.15,
-                    )
-
-    #labels = ['Mixed', 'Circle', 'Triangle']
-    #images = [sample, circle, triangle, None, x_pred] + x_i_preds
-    images = [x_gt] + x_i_gts + [x_pred] + x_i_preds
-    y_labels = ['True', 'Pred.']
-    for i, (ax, im) in enumerate(zip(grid, images)):
-        #if i < num_sources + 1:
-        #    ax.set_title(labels[i])
-        #if i % 4 == 0:
-        #    ax.set_ylabel(y_labels[(i)//4])
-        #if i+1 == len(images):
-        #    ax.set_title('(Dead Enc.)', color='gray', fontsize=12)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.imshow(im, cmap='gray')
-
-    if not os.path.exists('images'):
-        os.mkdir('images')
-
-    plt.savefig(f'images/{name}.png')
-    #plt.show()
 
 
 def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, sep_lr, linear=False):
@@ -389,6 +343,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
             # Format the timestamp as a string
             timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+            print(train_loss)
             print(f'[{timestamp_str}]:  Epoch {epoch + 1}/{max_epochs}, Train Loss: {train_loss:.4f}')
 
         # Validation loop
@@ -410,13 +365,6 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         sdr = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
                    name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear)
 
-        snr = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
-                   name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear)
-
-        #ssim = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
-        #                 name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear, metric_function=compute_ssim)
-
-
         if sdr > best_sdr and name:
             torch.save(model.state_dict(), f"checkpoints/{name}_best_sdr.pth")
             best_sdr = sdr
@@ -428,7 +376,6 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         if verbose:
             print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
             print(f'SDR: {sdr}')
-            print(f'SNR: {snr}')
             #print(f'SSIM: {ssim}')
 
     if name:
@@ -591,7 +538,8 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
         #metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
 
         phases = dataset_val.get_phase(sample_index)
-        metric_sum += np.mean(compute_spectral_metrics([x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], x_i_preds, phases=phases[1:])[metric_index_mapping['sdr']])
+        separation = compute_spectral_metrics([x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], x_i_preds, phases=phases[1:])[metric_index_mapping['sdr']]
+        metric_sum += np.mean(separation)
 
     return metric_sum / num_samples
 
