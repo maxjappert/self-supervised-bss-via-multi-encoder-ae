@@ -36,7 +36,7 @@ def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=Fal
         img = Image.open(f'images/{spectrogram}').convert('L')
         S_db_imported = np.array(img)
     else:
-        S_db_imported = spectrogram * 255
+        S_db_imported = spectrogram * 255 if spectrogram.max() <= 1 else spectrogram
         #print(S_db_imported)
 
     # Convert back to the original dB scale

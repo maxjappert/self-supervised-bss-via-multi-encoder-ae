@@ -169,6 +169,7 @@ def model_factory(input_channels=1, image_height=64, image_width=64, channels=[2
                   use_weight_norm=True, linear=False, kernel_size=7):
     """
     Factory returning a model with the specified parameters.
+    :param kernel_size: Size of convolutional kernel.
     :param input_channels: Input channels. Default is 1.
     :param image_height: Image height.
     :param image_width: Image height.
@@ -222,7 +223,7 @@ def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, 
     return loss
 
 
-def export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm, linear):
+def export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm, linear, kernel_size):
     """
     Saves the passed hyperparameters to a json file.
     :return: None
@@ -234,7 +235,8 @@ def export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_ty
         'num_encoders': num_encoders,
         'norm_type': norm_type,
         'use_weight_norm': use_weight_norm,
-        'linear': linear
+        'linear': linear,
+        'kernel_size': kernel_size
     }
 
     if not os.path.exists('hyperparameters'):
@@ -294,7 +296,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     model.to(device)
 
     if name:
-        export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm, linear)
+        export_hyperparameters_to_file(name, channels, hidden, num_encoders, norm_type, use_weight_norm, linear, kernel_size)
 
     if not os.path.exists('checkpoints'):
         os.mkdir('checkpoints')
@@ -307,6 +309,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
 
+    # TODO: Allow for different loss functions
     recon_loss = nn.BCEWithLogitsLoss()
     sep_loss = WeightSeparationLoss(model.num_encoders, sep_norm)
 
@@ -516,7 +519,7 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
             sample_index = random.randint(0, len(dataset_val) - 1)
             sample = dataset_val[sample_index]
 
-        x = torch.tensor(sample[0], dtype=torch.float32).unsqueeze(0).to(device)
+        x = sample[0].unsqueeze(0).to(device)
         x_pred, _ = model(x)
         x_pred = torch.sigmoid(x_pred).squeeze().detach().cpu().numpy()
 
@@ -528,6 +531,8 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
             if single_file:
                 visualise_predictions(sample[0].squeeze(), [x_i.squeeze() for x_i in sample[1:]], x_pred, x_i_preds, name=name)
                 print(f'{name}.png saved')
+                print(f'{x_pred.min()}, {x_pred.max()}')
+                print(f'{sample[0].min()}, {sample[0].max()}')
             else:
                 save_spectrogram_to_file(x_pred, f'{name}_mix.png')
                 save_spectrogram_to_file(sample[0].squeeze(), f'{name}_mix_gt.png')

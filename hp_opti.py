@@ -26,6 +26,7 @@ def objective(trial):
     lr = trial.suggest_categorical('lr', [10**(-i) for i in range(6)])
     normalisation = trial.suggest_categorical('normalisation', ['minmax', 'z-score'])
     linear = trial.suggest_categorical('linear', [True, False])
+    kernel_size = trial.suggest_categorical('kernel_size', [3, 5, 7, 9])
 
     channels = channel_options[channel_index]
 
@@ -50,10 +51,11 @@ def objective(trial):
             lr_step_size=50,
             lr_gamma=1.0,
             weight_decay=weight_decay,
-            max_epochs=5,
+            max_epochs=4,
             verbose=False,
             num_workers=12,
-            linear=linear
+            linear=linear,
+            kernel_size=kernel_size
         )
     except torch.cuda.OutOfMemoryError:
         print('CUDA out of Memory. Skipping')

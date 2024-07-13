@@ -1,3 +1,4 @@
+import copy
 import math
 import numbers
 import os
@@ -7,6 +8,7 @@ import warnings
 import librosa
 import mir_eval
 import numpy as np
+import torch
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 from skimage.metrics import structural_similarity as ssim
@@ -41,16 +43,30 @@ def compute_spectral_metrics(gt_spectros, approx_spectros, phases):
 
     assert len(gt_spectros) == len(approx_spectros) == len(phases)
 
+    if type(gt_spectros) is torch.Tensor:
+        gt_spectros = gt_spectros.detach().cpu().numpy()
+        approx_spectros = approx_spectros.detach().cpu().numpy()
+        gt_spectros_new = []
+        approx_spectros_new = []
+
+        threshold = 5
+        for i in range(len(gt_spectros)):
+            if i > threshold:
+                break
+            gt_spectros_new.append(np.array(gt_spectros[i].squeeze()))
+            approx_spectros_new.append(np.array(approx_spectros[i].squeeze()))
+
+        gt_spectros = gt_spectros_new
+        approx_spectros = approx_spectros_new
+
     gt_wavs = []
     approx_wavs = []
 
     for i in range(len(gt_spectros)):
-        gt_wavs.append(spectrogram_to_audio(gt_spectros[i], f'debug_gt_{i}', phase=phases[i]))
-        approx_wavs.append(spectrogram_to_audio(approx_spectros[i], f'debug_recon{i}', phase=phases[i]))
+        gt_wavs.append(spectrogram_to_audio(gt_spectros[i], None, phase=phases[i]))
+        approx_wavs.append(spectrogram_to_audio(approx_spectros[i], None, phase=phases[i]))
 
     separation = mir_eval.separation.bss_eval_sources(np.vstack(gt_wavs), np.vstack(approx_wavs))
-
-    visualise_predictions(np.zeros_like(gt_spectros[0]), gt_spectros, np.zeros_like(approx_spectros[0]), approx_spectros, name='debug')
 
     return separation
 
