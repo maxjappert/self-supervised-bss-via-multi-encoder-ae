@@ -30,7 +30,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 num_sources = 2
 
-name = 'musdb18_linear_evaluated_optimal_final'
+name = 'musdb18_kernel7'
 dataset_name = 'musdb18_two_sources'
 
 print(f'name: {name}')
@@ -41,17 +41,30 @@ print(f'dataset: {dataset_name}')
 channel_options = [[8, 16], [8, 16, 32], [8, 16, 32, 64], [8, 16, 32, 64, 128], [24, 48, 96, 144], [24, 48, 96, 196],
                    [24, 48, 96, 144, 196], [16, 32, 64, 128, 256]]
 
-hps = {'sep_lr': 1.0, 'zero_lr': 0.42, 'hidden': 512, 'channel_index': 2, 'norm_type': 'none', 'weight_decay': 0.0001, 'sep_norm': 'L1', 'batch_size': 32, 'lr': 0.001, 'normalisation': 'minmax', 'linear': True}
+#hps = {'sep_lr': 1.0, 'zero_lr': 0.42, 'hidden': 512, 'channel_index': 2, 'norm_type': 'none', 'weight_decay': 0.0001, 'sep_norm': 'L1', 'batch_size': 32, 'lr': 0.001, 'normalisation': 'minmax', 'linear': True}
+
+#hps = {'sep_lr': 0.1, 'zero_lr': 0.09, 'hidden': 128, 'channel_index': 1, 'norm_type': 'group_norm', 'weight_decay': 0.1, 'sep_norm': 'L1', 'batch_size': 16, 'lr': 0.1, 'normalisation': 'minmax', 'linear': True, 'kernel_size': 7}
+
+with open(f'hyperparameters/musdb18_linear_evaluated_optimal_final.json', 'r') as file:
+    hps = json.load(file)
 
 #model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources'), batch_size=28, lr=1e-4, hidden=512, dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources'), channels=[24, 48, 96, 144, 196], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=True)
-#model, _, _ = train(dataset_train=TwoSourcesDataset(split='train', name='musdb18_two_sources', normalisation=hps['normalisation']), batch_size=hps['batch_size'], lr=hps['lr'], hidden=hps['hidden'], dataset_val=TwoSourcesDataset(split='validation', name='musdb18_two_sources', normalisation=hps['normalisation']), channels=channel_options[hps['channel_index']], num_encoders=num_sources, image_height=1025, image_width=216, visualise=True, test_save_step=1, name=name, linear=hps['linear'])
+
+dataset_train = TwoSourcesDataset(debug=True, split='train', name='musdb18_two_sources')
+dataset_val = TwoSourcesDataset(debug=True, split='validation', name='musdb18_two_sources')
+
+model, _, _ = train(dataset_train=dataset_train, batch_size=32, hidden=hps['hidden'],
+                    norm_type=hps['norm_type'], dataset_val=dataset_val,
+                    channels=hps['channels'],
+                    num_encoders=num_sources, image_height=1025, image_width=431, visualise=True,
+                    test_save_step=1, name=name, linear=hps['linear'])
 
 with open(f'hyperparameters/{name}.json', 'r') as file:
     hps = json.load(file)
 
-model = model_factory(linear=hps['linear'], channels=hps['channels'], hidden=hps['hidden'], num_encoders=num_sources, image_height=1025, image_width=431, norm_type=hps['norm_type'], use_weight_norm=hps['use_weight_norm']).to(device)
+model = model_factory(linear=hps['linear'], channels=hps['channels'], hidden=hps['hidden'], num_encoders=num_sources, image_height=1025, image_width=431, norm_type=hps['norm_type'], use_weight_norm=hps['use_weight_norm'], kernel_size=hps['kernel_size']).to(device)
 
-model.load_state_dict(torch.load(f'checkpoints/{name}_best_sdr.pth', map_location=device))
+model.load_state_dict(torch.load(f'checkpoints/{name}_best_val_loss.pth', map_location=device))
 
 sdr1 = test(model, TwoSourcesDataset(split='validation', name=dataset_name), visualise=True,
             name=f'first_spectro_{name}', num_samples=1, single_file=False, linear=hps['linear'],
