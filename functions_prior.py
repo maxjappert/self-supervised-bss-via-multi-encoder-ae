@@ -70,7 +70,7 @@ class SDRLoss(torch.nn.Module):
 
 
 class PriorDataset(Dataset):
-    def __init__(self, split, debug=False, image_h=1024, image_w=384, name='musdb_18_prior'):
+    def __init__(self, split, debug=False, image_h=1024, image_w=384, name='musdb_18_prior', num_stems=4):
         self.data_point_names = []
         self.master_path = os.path.join('data', name, split)
 
@@ -78,8 +78,8 @@ class PriorDataset(Dataset):
             if random.random() < 0.9 and debug:
                 continue
 
-            for stem_idx in range(1, 5):
-                self.data_point_names.append(os.path.join(data_folder, 'stems', f'stem{stem_idx}'))
+            for stem_idx in range(1, 1+num_stems):
+                self.data_point_names.append(os.path.join(data_folder, f'{'stems' if name == 'toy_dataset' else ''}stem{stem_idx}'))
 
         self.transforms = transforms.Compose([
             transforms.ToTensor(),  # Convert numpy array to tensor
