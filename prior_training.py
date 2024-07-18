@@ -8,10 +8,12 @@ from functions_prior import train_vae, PriorDataset, train_classifier, VAE, SDRL
 
 debug = False
 
-device = torch.device('cuda')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-hps = {}
-channels = []
+channels = [[32, 64, 128, 256, 512], [16, 32, 64, 128, 256], [16, 32, 64, 128],
+                   [8, 16, 32, 64, 128, 256, 512], [8, 16, 32, 64, 128, 256], [16, 32, 64, 128], [16, 32, 64]]
+
+hps = {'latent_dim': 448, 'channel_index': 3, 'batch_size': 8, 'lr': 1e-05, 'kernel_size': 5, 'beta': 1e-06}
 
 dataset_train = PriorDataset('train', debug=debug, name='musdb_18_prior')
 dataset_val = PriorDataset('val', debug=debug, name='musdb_18_prior')
@@ -27,11 +29,27 @@ train_vae(dataloader_train,
           name='optimal1_musdb',
           criterion=SDRLoss,
           epochs=30,
-          contrastive_loss=hps['contrastive_loss'],
+          contrastive_loss=False,
           use_blocks=True,
           contrastive_weight=hps['beta'],
           latent_dim=hps['latent_dim'],
-          kld_weight=hps['kld_weight'],
+          kld_weight=hps['beta'],
+          visualise=True,
+          image_h=1024,
+          image_w=384)
+
+train_vae(dataloader_train,
+          dataloader_val,
+          kernel_size=hps['kernel_size'],
+          lr=hps['lr'],
+          channels=channels[hps['channel_index']],
+          name='optimal1_musdb_contrastive',
+          criterion=SDRLoss,
+          epochs=30,
+          contrastive_loss=True,
+          use_blocks=True,
+          latent_dim=hps['latent_dim'],
+          kld_weight=hps['beta'],
           visualise=True,
           image_h=1024,
           image_w=384)
@@ -50,11 +68,26 @@ train_vae(dataloader_train,
           name='optimal1_toy',
           criterion=SDRLoss,
           epochs=30,
-          contrastive_loss=hps['contrastive_loss'],
+          contrastive_loss=False,
           use_blocks=True,
-          contrastive_weight=hps['beta'],
           latent_dim=hps['latent_dim'],
-          kld_weight=hps['kld_weight'],
+          kld_weight=hps['beta'],
+          visualise=True,
+          image_h=1024,
+          image_w=128)
+
+train_vae(dataloader_train,
+          dataloader_val,
+          kernel_size=hps['kernel_size'],
+          lr=hps['lr'],
+          channels=channels[hps['channel_index']],
+          name='optimal1_toy',
+          criterion=SDRLoss,
+          epochs=30,
+          contrastive_loss=True,
+          use_blocks=True,
+          latent_dim=hps['latent_dim'],
+          kld_weight=hps['beta'],
           visualise=True,
           image_h=1024,
           image_w=128)

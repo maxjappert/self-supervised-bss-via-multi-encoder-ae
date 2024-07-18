@@ -387,7 +387,7 @@ def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50
         print(f'Train accuracy: {100 * correct_train / total_train:.2f}%, Val accuracy: {100 * correct_val / total_val:.2f}%')
 
 
-def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epochs=50, latent_dim=64, kernel_size=7, criterion=nn.L1Loss(), name=None, contrastive_weight=0.001, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, verbose=True, image_h=1024, image_w=384):
+def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epochs=50, latent_dim=64, kernel_size=7, criterion=nn.L1Loss(), name=None, contrastive_weight=0.0001, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, verbose=True, image_h=1024, image_w=384):
 
     vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_size=kernel_size, image_h=image_h, image_w=image_w).to(device)
 
