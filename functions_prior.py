@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torchaudio
 from PIL import Image
+from torch.distributions import Normal, kl_divergence
 from torch.nn import BCEWithLogitsLoss
 from torch.utils.data import Dataset
 from torchvision import transforms
@@ -23,7 +24,21 @@ from new_vae import NewVAE
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def sdr_loss(estimated_signal, original_signal, eps=1e-8):
+class ResNetClassifier(nn.Module):
+    def __init__(self, num_classes=4, pretrained=True):
+        super(ResNetClassifier, self).__init__()
+        self.model = models.resnet18(pretrained=pretrained)
+        self.model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, x):
+        x = self.model(x)
+        x = self.softmax(x)
+        return x
+
+
+def compute_sdr(estimated_signal, original_signal, eps=1e-8):
     """
     Calculate the Signal-to-Distortion Ratio (SDR) loss.
 
@@ -41,7 +56,7 @@ def sdr_loss(estimated_signal, original_signal, eps=1e-8):
     num = torch.sum(original_signal ** 2, dim=-1)
     denom = torch.sum((original_signal - estimated_signal) ** 2, dim=-1)
 
-    sdr = 10 * torch.log10((num + eps) / (denom + eps))
+    sdr = 10 * (torch.log10(num + eps) - torch.log10(denom + eps))
     return sdr
 
 
@@ -50,25 +65,25 @@ class SDRLoss(torch.nn.Module):
         super(SDRLoss, self).__init__()
 
     def forward(self, estimated_signal, original_signal):
-        sdr = sdr_loss(estimated_signal, original_signal)
-        return -torch.mean(sdr)  # We negate SDR because we want to maximize it
+        sdr = compute_sdr(estimated_signal, original_signal)
+        return torch.exp(-torch.mean(sdr))  # We negate SDR because we want to maximize it
 
 
 class PriorDataset(Dataset):
-    def __init__(self, split, debug=False):
+    def __init__(self, split, debug=False, image_h=1024, image_w=384, name='musdb_18_prior'):
         self.data_point_names = []
-        self.master_path = os.path.join('data', 'musdb_18_prior', split)
+        self.master_path = os.path.join('data', name, split)
 
         for data_folder in os.listdir(self.master_path):
             if random.random() < 0.9 and debug:
                 continue
 
             for stem_idx in range(1, 5):
-                self.data_point_names.append(os.path.join(data_folder, f'stem{stem_idx}'))
+                self.data_point_names.append(os.path.join(data_folder, 'stems', f'stem{stem_idx}'))
 
         self.transforms = transforms.Compose([
             transforms.ToTensor(),  # Convert numpy array to tensor
-            transforms.Resize((1024, 384))
+            transforms.Resize((image_h, image_w))
             # TODO: Try normalisation
             #transforms.Normalize(mean=[0.5], std=[0.5]),  # Normalize to mean=0.5, std=0.5
             #transforms.Lambda(lambda x: torch.log(x + 1e-9)),  # Apply logarithmic scaling
@@ -171,12 +186,15 @@ def compute_size(size, num_layers, stride, kernel_size, padding):
 
 # Define the VAE
 class VAE(nn.Module):
-    def __init__(self, latent_dim=4096, channels=[8, 16, 32, 64, 128], use_weight_norm=False, use_blocks=True):
+    def __init__(self, latent_dim=64, channels=[32, 64, 128, 256, 512], kernel_size=7, use_weight_norm=False, use_blocks=True, image_h=1024, image_w=384):
         super(VAE, self).__init__()
         #self.encoder = models.resnet18(weights=None)
         #self.encoder.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         #num_output_features = self.encoder.fc.in_features
         #self.encoder = nn.Sequential(*list(self.encoder.children())[:-1])  # Remove the final fc layer
+
+        self.image_h = image_h
+        self.image_w = image_w
 
         if channels[0] != 1:
             channels = [1] + channels
@@ -186,15 +204,21 @@ class VAE(nn.Module):
         self.encoder = nn.Sequential()
         for c_i in range(len(channels)-1):
             if use_blocks:
-                self.encoder.append(EncoderBlock(channels[c_i], channels[c_i + 1]))
+                self.encoder.append(EncoderBlock(channels[c_i], channels[c_i + 1], kernel_size=kernel_size))
             else:
                 self.encoder.append(nn.Conv2d(channels[c_i], channels[c_i+1], kernel_size=3, stride=2, padding=3))
                 self.encoder.append(nn.ReLU())
 
         #num_output_features = channels[-1] * 68 * 28
 
-        self.compressed_size_h = 32# 16# compute_size(1024, len(channels), 2, 3, 3)
-        self.compressed_size_w = 12 #6# compute_size(384, len(channels), 2, 3, 3)
+        # 32, 12
+
+        #self.compressed_size_h = 1024 // 2**len(channels) if use_blocks else compute_size(1024, len(channels), 2, 3, 3)
+        #self.compressed_size_w = 384 // 2**len(channels) if use_blocks else compute_size(384, len(channels), 2, 3, 3)
+
+        dummy_encoded = self.encoder(torch.zeros((1, 1, image_h, image_w)))
+        self.compressed_size_h = dummy_encoded.shape[2]
+        self.compressed_size_w = dummy_encoded.shape[3]
 
         num_output_features = channels[-1] * self.compressed_size_h * self.compressed_size_w
 
@@ -208,7 +232,7 @@ class VAE(nn.Module):
             if use_blocks:
                 self.decoder.append(DecoderBlock(channels[c_i], channels[c_i - 1], c_i,
                                              'none', len(channels),
-                                             1024, 384))
+                                             image_h, image_w, kernel_size=kernel_size))
             else:
                 self.decoder.append(nn.ConvTranspose2d(channels[c_i], channels[c_i-1], kernel_size=3, stride=2, padding=3, output_padding=1))
                 self.decoder.append(nn.ReLU())
@@ -231,13 +255,28 @@ class VAE(nn.Module):
         h = h.view(h.size(0), self.channels[-1], self.compressed_size_h, self.compressed_size_w)  # Reshape for the convolutional layers
         h = self.decoder(h)
         #h = self.output(h)
-        return transforms.Resize((1024, 384))(h)
+        return transforms.Resize((self.image_h, self.image_w))(h)
 
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.reparameterise(mu, logvar)
 
         return self.decode(z), mu, logvar
+
+    def log_prob(self, x, recon_loss=SDRLoss):
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        recon_x = self.decode(z)
+
+        # KL divergence
+        qz = Normal(mu, torch.exp(0.5 * logvar))
+        pz = Normal(torch.zeros_like(mu), torch.ones_like(mu))
+        kl_div = kl_divergence(qz, pz).sum()
+
+        # ELBO as approximation of log-probability
+        elbo = -recon_loss - kl_div
+        return elbo
+
 
 
 class LatentClassifier(nn.Module):
@@ -256,10 +295,12 @@ class LatentClassifier(nn.Module):
         return x
 
 
-def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50, name=None):
-    model = LatentClassifier().to(device)
-    vae = vae.to(device)
-    vae.eval()
+def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50, name=None, naive=False, pretrained=True):
+    model = ResNetClassifier(pretrained=pretrained).to(device) if naive else LatentClassifier().to(device)
+
+    if not naive:
+        vae = vae.to(device)
+        vae.eval()
 
     optimiser = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
@@ -276,7 +317,6 @@ def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50
         total_val = 0
         correct_val = 0
 
-        best_val_loss = float('inf')
         best_model = None
 
         for batch in data_loader_train:
@@ -286,11 +326,14 @@ def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50
             labels = batch['label'].to(device)
             phases = batch['phase'].numpy()
 
-            with torch.no_grad():
-                mu, logvar = vae.encode(spectrograms.float())
-                z = vae.reparameterise(mu, logvar)
+            if naive:
+                output = model(spectrograms.float())
+            else:
+                with torch.no_grad():
+                    mu, logvar = vae.encode(spectrograms.float())
+                    z = vae.reparameterise(mu, logvar)
 
-            output = model(z)
+                output = model(z)
 
             loss = criterion(output, labels)
             loss.backward()
@@ -312,10 +355,13 @@ def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50
                 spectrograms = batch['spectrogram'].to(device)
                 labels = batch['label'].to(device)
 
-                mu, logvar = vae.encode(spectrograms.float())
-                z = vae.reparameterise(mu, logvar)
+                if naive:
+                    output = model(spectrograms.float())
+                else:
+                    mu, logvar = vae.encode(spectrograms.float())
+                    z = vae.reparameterise(mu, logvar)
 
-                output = model(z)
+                    output = model(z)
 
                 loss = criterion(output, labels)
 
@@ -338,26 +384,23 @@ def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50
 
         print(
             f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
-        print(f'Train accuracy: {100 * correct_train / total_train:.2f}%, Val accuracy: {100 * correct_val / total_val:.2f}')
+        print(f'Train accuracy: {100 * correct_train / total_train:.2f}%, Val accuracy: {100 * correct_val / total_val:.2f}%')
 
 
+def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epochs=50, latent_dim=64, kernel_size=7, criterion=nn.L1Loss(), name=None, contrastive_weight=0.001, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, verbose=True, image_h=1024, image_w=384):
 
-
-
-# Training loop for VAE with contrastive learning
-def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epochs=50, name=None, contrastive_weight=0.001, contrastive_loss=True, visualise=True, kld_weight = 0.00001):
-
-    vae = VAE(use_blocks=use_blocks).to(device)
+    vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_size=kernel_size, image_h=image_h, image_w=image_w).to(device)
 
     optimiser = torch.optim.Adam(vae.parameters(), lr=lr)
 
     sup_con_loss = SupConLoss()
     #criterion = nn.MSELoss()
     #criterion = SDRLoss()
-    criterion = BCEWithLogitsLoss()
+    #criterion = BCEWithLogitsLoss()
 
     best_val_loss = float('inf')
     best_model = None
+    best_val_sdr = -float('inf')
 
     for epoch in range(epochs):
         vae.train()
@@ -396,6 +439,8 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epoc
 
         avg_train_loss = train_loss / len(data_loader_train.dataset)
 
+        epoch_val_sdr = 0
+
         vae.eval()
         val_loss = 0
         with torch.no_grad():
@@ -413,15 +458,24 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epoc
 
                 loss = recon_loss + kld_loss + supcon_loss_value
                 val_loss += loss.item()
-
-        datapoint = data_loader_val.dataset[4]
-        output, _, _ = vae(datapoint['spectrogram'].unsqueeze(dim=0).to(device).float())
-
-        save_spectrogram_to_file(output.squeeze().detach().cpu().numpy(), f'{name}_{epoch}.png')
+                epoch_val_sdr += -torch.log(recon_loss)
 
         avg_val_loss = val_loss / len(data_loader_val.dataset)
-        print(
-            f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+
+        val_sdr = epoch_val_sdr / len(data_loader_val.dataset)
+
+        if val_sdr > best_val_sdr:
+            best_val_sdr = val_sdr
+
+        if visualise:
+            datapoint = data_loader_val.dataset[4]
+            output, _, _ = vae(datapoint['spectrogram'].unsqueeze(dim=0).to(device).float())
+
+            save_spectrogram_to_file(output.squeeze().detach().cpu().numpy(), f'{name}_{epoch}.png')
+
+        if verbose:
+            print(
+                f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
@@ -431,4 +485,4 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epoc
                 torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
                 print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
 
-    return best_model
+    return best_model, best_val_sdr

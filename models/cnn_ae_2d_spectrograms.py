@@ -45,7 +45,7 @@ class ConvolutionalEncoder(nn.Module):
     
 class DecoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels, c_i, 
-                 norm_type, num_encoders, num_channels, image_h, image_w,
+                 norm_type, num_channels, image_h, image_w,
                  kernel_size=7, stride=1, padding=3,):
         super(DecoderBlock, self).__init__()
         self.block = nn.Sequential()
@@ -58,7 +58,7 @@ class DecoderBlock(nn.Module):
         if norm_type == 'batch_norm':
             self.block.append(nn.BatchNorm2d(out_channels, momentum=0.8))
         elif norm_type == 'group_norm':
-            self.block.append(nn.GroupNorm(num_encoders, out_channels))
+            self.block.append(nn.GroupNorm(1, out_channels))
         elif norm_type == 'layer_norm':
             down_sample = (num_channels-2) - c_i
             self.block.append(nn.LayerNorm([out_channels, int(image_h//(2**down_sample)), int(image_w//(2**down_sample))]))
@@ -69,7 +69,7 @@ class DecoderBlock(nn.Module):
         return self.block(x)
     
 class ConvolutionalDecoder(nn.Module):
-    def __init__(self, image_h, image_w, channels, hidden, num_encoders, kernel_size=7, norm_type='none'):
+    def __init__(self, image_h, image_w, channels, hidden, kernel_size=7, norm_type='none'):
         super(ConvolutionalDecoder, self).__init__()
         self.image_h = image_h
         self.image_w = image_w
@@ -87,7 +87,7 @@ class ConvolutionalDecoder(nn.Module):
         if norm_type == 'batch_norm':
             self.decoder.append(nn.BatchNorm2d(channels[-1], momentum=0.8))
         elif norm_type == 'group_norm':
-            self.decoder.append(nn.GroupNorm(num_encoders, channels[-1]))
+            self.decoder.append(nn.GroupNorm(1, channels[-1]))
         elif norm_type == 'layer_norm':
             down_sample = (channels[-1]-2) - 0
             self.decoder.append(nn.LayerNorm([channels[-1], image_h//(2**down_sample), image_w//(2**down_sample)]))
@@ -95,11 +95,10 @@ class ConvolutionalDecoder(nn.Module):
             self.decoder.append(nn.InstanceNorm2d(channels[-1]))
         for c_i in reversed(range(1, len(channels))):
             self.decoder.append(DecoderBlock(channels[c_i], channels[c_i-1], c_i, 
-                                             norm_type, num_encoders, len(channels), 
+                                             norm_type, len(channels),
                                              image_h, image_w, kernel_size=kernel_size))
         
     def forward(self, z):
-        z = torch.concatenate(z, dim=1)
         y = self.decoder(z)
 
         print(y.shape)
@@ -110,7 +109,7 @@ class ConvolutionalDecoder(nn.Module):
 class ConvolutionalAutoencoder(nn.Module):
     def __init__(self, input_channels=3, image_h=64, image_w=64,
                  channels=[32, 64, 128], hidden=512, 
-                 num_encoders=4, norm_type='none',
+                 norm_type='none',
                  use_weight_norm=True, kernel_size=7):
         super(ConvolutionalAutoencoder, self).__init__()
         self.image_h = image_h
@@ -118,19 +117,17 @@ class ConvolutionalAutoencoder(nn.Module):
         self.input_channels = input_channels
         self.channels = channels
         self.hidden = hidden
-        self.num_encoders = num_encoders
-        
+
         # encoder layers
-        enc_channels = [c//num_encoders for c in channels]
-        self.encoders = nn.ModuleList()
-        for _ in range(num_encoders):
-            self.encoders.append(ConvolutionalEncoder(image_h=image_h, image_w=image_w,
+        enc_channels = channels
+        self.encoder = ConvolutionalEncoder(image_h=image_h, image_w=image_w,
                                                       channels=[input_channels] + enc_channels,
-                                                      hidden=hidden//num_encoders))
+                                                      hidden=hidden)
+
         # decoder layers
         self.decoder = ConvolutionalDecoder(image_h=image_h, image_w=image_w,
                                             channels=[channels[0]] + channels,
-                                            hidden=hidden, num_encoders=num_encoders, 
+                                            hidden=hidden,
                                             norm_type=norm_type, kernel_size=kernel_size)
         # output layer
         if use_weight_norm:
@@ -149,12 +146,7 @@ class ConvolutionalAutoencoder(nn.Module):
             )
     
     def encode(self, x):
-        z = []
-        for i, encoder in enumerate(self.encoders):
-            e = encoder(x)
-            z.append(e)
-            
-        return z
+        return self.encoder(x)
     
     def decode(self, z, zeros_train=False):
         if zeros_train:

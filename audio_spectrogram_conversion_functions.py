@@ -4,15 +4,15 @@ import matplotlib.pyplot as plt
 import scipy
 from PIL import Image
 
-sample_rate = 44100
+#sample_rate = 44100
 chunk_length = 5  # in seconds
 n_fft = 2048
 hop_length = 512
 
 
-def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from_file=False):
+def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from_file=False, sr=44100):
     if from_file:
-        audio, _ = librosa.load(audio, sr=sample_rate)
+        audio, _ = librosa.load(audio, sr=sr)
 
     # Convert to spectrogram
     S = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
@@ -30,7 +30,7 @@ def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from
 
     return S_db_normalized, phase
 
-def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=False):
+def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=False, sr=44100):
     # Load the spectrogram image
     if from_file:
         img = Image.open(f'images/{spectrogram}').convert('L')
@@ -55,7 +55,7 @@ def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=Fal
 
     if output_filename is not None:
         # Write the output to a WAV file
-        scipy.io.wavfile.write(f'wavs/{output_filename}.wav', 44100, np.array(audio_signal * 32767, dtype=np.int16))
+        scipy.io.wavfile.write(f'wavs/{output_filename}.wav', sr, np.array(audio_signal * 32767, dtype=np.int16))
 
     return audio_signal * 32767
 
