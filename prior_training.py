@@ -18,8 +18,8 @@ hps = {'latent_dim': 448, 'channel_index': 3, 'batch_size': 8, 'lr': 1e-05, 'ker
 dataset_train = PriorDataset('train', debug=debug, name='musdb_18_prior')
 dataset_val = PriorDataset('val', debug=debug, name='musdb_18_prior')
 
-dataloader_train = DataLoader(dataset_train, batch_size=hps['batch_size'], shuffle=True, num_workers=12)
-dataloader_val = DataLoader(dataset_val, batch_size=hps['batch_size'], shuffle=True, num_workers=12)
+dataloader_train = DataLoader(dataset_train, batch_size=hps['batch_size'], shuffle=True)
+dataloader_val = DataLoader(dataset_val, batch_size=hps['batch_size'], shuffle=True)
 
 train_vae(dataloader_train,
           dataloader_val,
