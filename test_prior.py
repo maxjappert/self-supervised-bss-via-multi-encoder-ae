@@ -1,3 +1,5 @@
+import json
+
 import torch
 
 from functions import save_spectrogram_to_file
@@ -8,7 +10,7 @@ device = torch.device('cpu')# torch.device("cuda" if torch.cuda.is_available() e
 
 dataset_val = PriorDataset('val', debug=debug)
 
-names = ['optimal1_toy', 'optimal1_toy_contrastive', 'optimal1_musdb', 'optimal1_musdb_contrastive']
+names = ['cyclic_toy_kl', 'cyclic_musdb', 'cyclic_musdb_kl']
 
 for name in names:
     print(name)
@@ -20,7 +22,9 @@ for name in names:
         image_w = 384
         dataset_name = 'musdb_18_prior'
 
-    vae = VAE(latent_dim=448, image_h=1024, image_w=image_w, kernel_size=5, channels=[8, 16, 32, 64, 128, 256, 512]).to(device)
+    hps = json.load(open(f'hyperparameters/{name}.json'))
+
+    vae = VAE(latent_dim=hps['hidden'], image_h=1024, image_w=image_w, kernel_size=hps['kernel_size'], channels=hps['channels']).to(device)
 
     vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
 

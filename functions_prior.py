@@ -278,7 +278,7 @@ class VAE(nn.Module):
         recon_loss = loss_fn(recon, x)
 
         # ELBO as approximation of log-probability
-        elbo = -recon_loss - kl_div
+        elbo = -(recon_loss - kl_div)
         return elbo
 
 

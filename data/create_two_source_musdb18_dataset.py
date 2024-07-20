@@ -11,10 +11,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 sys.path.append('../')
-from audio_spectrogram_conversion_functions import audio_to_spectrogram, sample_rate, chunk_length
+from audio_spectrogram_conversion_functions import audio_to_spectrogram, chunk_length
 
 
-def slice_audio_file_to_chunks(file_path):
+def slice_audio_file_to_chunks(file_path, sample_rate=44100):
     # Load audio file
     audio, sr = librosa.load(file_path, sr=sample_rate)
     total_length = chunk_length * sr
@@ -100,7 +100,7 @@ def create_two_sources_dataset(input_folder, output_folder, split_ratio=0.8):
         shutil.rmtree(stems_folder)
         return comb_counter
 
-    # Process train files
+    # # Process train files
     comb_counter = 0
     train_files = list((input_folder / "train").glob("*.stem.mp4"))
     for file_path in train_files:

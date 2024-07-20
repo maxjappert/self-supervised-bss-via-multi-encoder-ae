@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -69,10 +71,15 @@ def create_noise_images(num_images, height, width):
 if __name__ == "__main__":
     dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_w=128)
     dataloader_val = DataLoader(dataset_val, num_workers=12, batch_size=16, shuffle=False)
-    vae = VAE(latent_dim=448, image_h=1024, image_w=128, kernel_size=5, channels=[8, 16, 32, 64, 128, 256, 512]).to(
+
+    name = 'cyclic_toy_kl'
+
+    hps = json.load(open(f'hyperparameters/{name}.json'))
+
+    vae = VAE(latent_dim=hps['hidden'], image_h=1024, image_w=128, kernel_size=hps['kernel_size'], channels=hps['channels']).to(
         device)
 
-    vae.load_state_dict(torch.load(f'checkpoints/optimal1_toy.pth', map_location=device))
+    vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
 
     kls = []
 

@@ -30,7 +30,7 @@ def create_wave(wave_type, freq, duration, sr):
 # Directory structure and parameters
 dataset_dir = Path('toy_dataset')
 splits = ['train', 'test', 'val']
-num_datas = {'train': 10000, 'test': 1000, 'val': 1000}
+num_datas = {'train': 0, 'test': 1000, 'val': 1000}
 wave_types = ['sine', 'sawtooth', 'square', 'triangle']
 sr = 16000
 duration = 5
