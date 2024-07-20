@@ -1,4 +1,5 @@
 import datetime
+import json
 import math
 import os
 import random
@@ -9,7 +10,8 @@ import torch.nn as nn
 import torchaudio
 from PIL import Image
 from torch.distributions import Normal, kl_divergence
-from torch.nn import BCEWithLogitsLoss
+from torch.nn import BCEWithLogitsLoss, L1Loss
+from torch.optim.lr_scheduler import CyclicLR
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision import models
@@ -50,14 +52,17 @@ def compute_sdr(estimated_signal, original_signal, eps=1e-8):
     Returns:
         torch.Tensor: The SDR value for each sample.
     """
-    estimated_signal = estimated_signal.view(estimated_signal.size(0), -1)
-    original_signal = original_signal.view(original_signal.size(0), -1)
+    # estimated_signal = estimated_signal.view(estimated_signal.size(0), -1)
+    # original_signal = original_signal.view(original_signal.size(0), -1)
 
-    num = torch.sum(original_signal ** 2, dim=-1)
-    denom = torch.sum((original_signal - estimated_signal) ** 2, dim=-1)
+    if torch.equal(estimated_signal, original_signal):
+        return -float('inf')
+
+    num = original_signal ** 2
+    denom = (original_signal - estimated_signal) ** 2
 
     sdr = 10 * (torch.log10(num + eps) - torch.log10(denom + eps))
-    return sdr
+    return torch.mean(sdr)
 
 
 class SDRLoss(torch.nn.Module):
@@ -79,7 +84,7 @@ class PriorDataset(Dataset):
                 continue
 
             for stem_idx in range(1, 1+num_stems):
-                self.data_point_names.append(os.path.join(data_folder, f'{'stems' if name == 'toy_dataset' else ''}stem{stem_idx}'))
+                self.data_point_names.append(os.path.join(data_folder, f'{"stems/" if name == "toy_dataset" else ""}stem{stem_idx}'))
 
         self.transforms = transforms.Compose([
             transforms.ToTensor(),  # Convert numpy array to tensor
@@ -102,7 +107,8 @@ class PriorDataset(Dataset):
         :return: The normalised output in [0, 1].
         """
         #return x
-        return (x - np.min(x)) / (np.max(x) - np.min(x))
+        normalised = (x - np.min(x)) / (np.max(x) - np.min(x))
+        return normalised
 
 
     def __getitem__(self, idx):
@@ -263,15 +269,13 @@ class VAE(nn.Module):
 
         return self.decode(z), mu, logvar
 
-    def log_prob(self, x, recon_loss=SDRLoss):
-        mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
-        recon_x = self.decode(z)
+    def log_prob(self, x):
+        recon, mu, logvar = self.forward(x)
 
         # KL divergence
-        qz = Normal(mu, torch.exp(0.5 * logvar))
-        pz = Normal(torch.zeros_like(mu), torch.ones_like(mu))
-        kl_div = kl_divergence(qz, pz).sum()
+        kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        loss_fn = L1Loss()
+        recon_loss = loss_fn(recon, x)
 
         # ELBO as approximation of log-probability
         elbo = -recon_loss - kl_div
@@ -386,12 +390,40 @@ def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50
             f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
         print(f'Train accuracy: {100 * correct_train / total_train:.2f}%, Val accuracy: {100 * correct_val / total_val:.2f}%')
 
+def export_hyperparameters_to_file(name, channels, hidden, kernel_size, use_blocks, contrastive_weight, contrastive_loss, kld_weight):
+    """
+    Saves the passed hyperparameters to a json file.
+    :return: None
+    """
+    variables = {
+        'name': name,
+        'channels': channels,
+        'hidden': hidden,
+        'kernel_size': kernel_size,
+        'use_blocks': use_blocks,
+        'contrastive_weight': contrastive_weight,
+        'contrastive_loss': contrastive_loss,
+        'kld_weight': kld_weight
+    }
 
-def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epochs=50, latent_dim=64, kernel_size=7, criterion=nn.L1Loss(), name=None, contrastive_weight=0.0001, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, verbose=True, image_h=1024, image_w=384):
+    if not os.path.exists('hyperparameters'):
+        os.mkdir('hyperparameters')
+
+    with open(f'hyperparameters/{name}.json', 'w') as file:
+        json.dump(variables, file)
+
+
+def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epochs=50, latent_dim=64, kernel_size=7, criterion=nn.L1Loss(), name=None, contrastive_weight=0.01, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, verbose=True, image_h=1024, image_w=384, cyclic_lr=False):
+    print(f'Training {name}')
+
+    export_hyperparameters_to_file(name, channels, latent_dim, kernel_size, use_blocks, contrastive_weight, contrastive_loss, kld_weight)
 
     vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_size=kernel_size, image_h=image_h, image_w=image_w).to(device)
 
     optimiser = torch.optim.Adam(vae.parameters(), lr=lr)
+
+    if cyclic_lr:
+        scheduler = CyclicLR(optimiser, base_lr=1e-6, max_lr=1e-4, step_size_up=4000, mode='triangular')
 
     sup_con_loss = SupConLoss()
     #criterion = nn.MSELoss()
@@ -411,7 +443,6 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epoc
 
             spectrograms = batch['spectrogram'].to(device)
             labels = batch['label'].to(device)
-            phases = batch['phase'].numpy()
 
             #print(spectrograms.shape)
 
@@ -432,6 +463,9 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epoc
 
             loss.backward()
             optimiser.step()
+
+            if cyclic_lr:
+                scheduler.step()
 
             train_loss += loss.item()
 

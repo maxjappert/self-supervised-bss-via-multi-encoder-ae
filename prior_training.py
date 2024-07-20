@@ -2,6 +2,7 @@ import sys
 
 import torch
 from torch import nn
+from torch.nn import BCELoss, MSELoss
 from torch.utils.data import DataLoader
 
 from functions_prior import train_vae, PriorDataset, train_classifier, VAE, SDRLoss
@@ -13,81 +14,87 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 channels = [[32, 64, 128, 256, 512], [16, 32, 64, 128, 256], [16, 32, 64, 128],
                    [8, 16, 32, 64, 128, 256, 512], [8, 16, 32, 64, 128, 256], [16, 32, 64, 128], [16, 32, 64]]
 
-hps = {'latent_dim': 448, 'channel_index': 3, 'batch_size': 8, 'lr': 1e-05, 'kernel_size': 5, 'beta': 1e-06}
+hps = {'latent_dim': 448, 'channel_index': 3, 'batch_size': 16, 'lr': 1e-04, 'kernel_size': 5, 'beta': 1e-06}
 
 dataset_train = PriorDataset('train', debug=debug, name='musdb_18_prior')
 dataset_val = PriorDataset('val', debug=debug, name='musdb_18_prior')
 
-dataloader_train = DataLoader(dataset_train, batch_size=hps['batch_size'], shuffle=True)
-dataloader_val = DataLoader(dataset_val, batch_size=hps['batch_size'], shuffle=True)
+dataloader_train = DataLoader(dataset_train, batch_size=hps['batch_size'], shuffle=True, num_workers=12)
+dataloader_val = DataLoader(dataset_val, batch_size=hps['batch_size'], shuffle=True, num_workers=12)
 
-train_vae(dataloader_train,
-          dataloader_val,
-          kernel_size=hps['kernel_size'],
-          lr=hps['lr'],
-          channels=channels[hps['channel_index']],
-          name='optimal1_musdb',
-          criterion=SDRLoss,
-          epochs=30,
-          contrastive_loss=False,
-          use_blocks=True,
-          contrastive_weight=hps['beta'],
-          latent_dim=hps['latent_dim'],
-          kld_weight=hps['beta'],
-          visualise=True,
-          image_h=1024,
-          image_w=384)
 
-train_vae(dataloader_train,
-          dataloader_val,
-          kernel_size=hps['kernel_size'],
-          lr=hps['lr'],
-          channels=channels[hps['channel_index']],
-          name='optimal1_musdb_contrastive',
-          criterion=SDRLoss,
-          epochs=30,
-          contrastive_loss=True,
-          use_blocks=True,
-          latent_dim=hps['latent_dim'],
-          kld_weight=hps['beta'],
-          visualise=True,
-          image_h=1024,
-          image_w=384)
+# train_vae(dataloader_train,
+#           dataloader_val,
+#           kernel_size=hps['kernel_size'],
+#           lr=1e-05,
+#           cyclic_lr=True,
+#           channels=channels[hps['channel_index']],
+#           name='cyclic_musdb',
+#           criterion=SDRLoss(),
+#           epochs=50,
+#           contrastive_loss=True,
+#           use_blocks=True,
+#           contrastive_weight=hps['beta'],
+#           latent_dim=512,
+#           kld_weight=hps['beta'],
+#           visualise=True,
+#           image_h=1024,
+#           image_w=384)
+
+# train_vae(dataloader_train,
+#           dataloader_val,
+#           kernel_size=hps['kernel_size'],
+#           lr=1e-05,
+#           cyclic_lr=True,
+#           channels=channels[hps['channel_index']],
+#           name='cyclic_musdb_kl',
+#           criterion=SDRLoss(),
+#           epochs=50,
+#           contrastive_loss=False,
+#           use_blocks=True,
+#           contrastive_weight=hps['beta'],
+#           latent_dim=128,
+#           kld_weight=1,
+#           visualise=True,
+#           image_h=1024,
+#           image_w=384)
 
 dataset_train = PriorDataset('train', debug=debug, name='toy_dataset', image_h=1024, image_w=128)
 dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_h=1024, image_w=128)
 
-dataloader_train = DataLoader(dataset_train, batch_size=hps['batch_size'], shuffle=True, num_workers=12)
-dataloader_val = DataLoader(dataset_val, batch_size=hps['batch_size'], shuffle=True, num_workers=12)
+dataloader_train = DataLoader(dataset_train, batch_size=128, shuffle=True, num_workers=12)
+dataloader_val = DataLoader(dataset_val, batch_size=128, shuffle=True, num_workers=12)
+
+# train_vae(dataloader_train,
+#           dataloader_val,
+#           kernel_size=hps['kernel_size'],
+#           cyclic_lr=True,
+#           lr=1e-05,
+#           channels=channels[hps['channel_index']],
+#           name='cyclic_toy',
+#           criterion=SDRLoss(),
+#           epochs=50,
+#           contrastive_loss=True,
+#           use_blocks=True,
+#           latent_dim=512,
+#           kld_weight=hps['beta'],
+#           visualise=True,
+#           image_h=1024,
+#           image_w=128)
 
 train_vae(dataloader_train,
           dataloader_val,
           kernel_size=hps['kernel_size'],
-          lr=hps['lr'],
+          cyclic_lr=True,
+          lr=1e-05,
           channels=channels[hps['channel_index']],
-          name='optimal1_toy',
-          criterion=SDRLoss,
-          epochs=30,
+          name='cyclic_toy_kl',
+          criterion=SDRLoss(),
+          epochs=50,
           contrastive_loss=False,
           use_blocks=True,
-          latent_dim=hps['latent_dim'],
-          kld_weight=hps['beta'],
-          visualise=True,
-          image_h=1024,
-          image_w=128)
-
-train_vae(dataloader_train,
-          dataloader_val,
-          kernel_size=hps['kernel_size'],
-          lr=hps['lr'],
-          channels=channels[hps['channel_index']],
-          name='optimal1_toy',
-          criterion=SDRLoss,
-          epochs=30,
-          contrastive_loss=True,
-          use_blocks=True,
-          latent_dim=hps['latent_dim'],
-          kld_weight=hps['beta'],
+          latent_dim=128,
+          kld_weight=1,
           visualise=True,
           image_h=1024,
           image_w=128)
