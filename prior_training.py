@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from functions_prior import train_vae, PriorDataset, train_classifier, VAE, SDRLoss
 
-debug = False
+debug = True
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -59,11 +59,11 @@ dataloader_val = DataLoader(dataset_val, batch_size=hps['batch_size'], shuffle=T
 #           image_h=1024,
 #           image_w=384)
 
-dataset_train = PriorDataset('train', debug=debug, name='toy_dataset', image_h=1024, image_w=128)
-dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_h=1024, image_w=128)
+dataset_train = PriorDataset('train', debug=debug, name='toy_dataset', image_h=28, image_w=28)
+dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_h=28, image_w=28)
 
-dataloader_train = DataLoader(dataset_train, batch_size=128, shuffle=True, num_workers=12)
-dataloader_val = DataLoader(dataset_val, batch_size=128, shuffle=True, num_workers=12)
+dataloader_train = DataLoader(dataset_train, batch_size=1024, shuffle=True, num_workers=12)
+dataloader_val = DataLoader(dataset_val, batch_size=1024, shuffle=True, num_workers=12)
 
 # train_vae(dataloader_train,
 #           dataloader_val,
@@ -82,22 +82,41 @@ dataloader_val = DataLoader(dataset_val, batch_size=128, shuffle=True, num_worke
 #           image_h=1024,
 #           image_w=128)
 
+# train_vae(dataloader_train,
+#           dataloader_val,
+#           kernel_sizes=3,
+#           cyclic_lr=False,
+#           lr=1e-03,
+#           channels=[32, 64, 64, 64],
+#           name='cyclic_toy_small',
+#           criterion=MSELoss(),
+#           epochs=50,
+#           contrastive_loss=False,
+#           use_blocks=False,
+#           latent_dim=8,
+#           kld_weight=1,
+#           visualise=True,
+#           image_h=28,
+#           image_w=28)
+
 train_vae(dataloader_train,
           dataloader_val,
-          kernel_size=hps['kernel_size'],
-          cyclic_lr=True,
-          lr=1e-05,
-          channels=channels[hps['channel_index']],
-          name='cyclic_toy_kl',
-          criterion=SDRLoss(),
+          kernel_sizes=[3, 3, 3, 3],
+          strides=[1, 2, 2, 1],
+          cyclic_lr=False,
+          lr=1e-03,
+          channels=[32, 64, 64, 64],
+          name='cyclic_toy_small',
+          criterion=MSELoss(),
           epochs=50,
           contrastive_loss=False,
-          use_blocks=True,
-          latent_dim=128,
+          recon_weight=100000,
+          use_blocks=False,
+          latent_dim=32,
           kld_weight=1,
           visualise=True,
-          image_h=1024,
-          image_w=128)
+          image_h=28,
+          image_w=28)
 
 #
 #vae_block_l1_contrastive = train_vae(dataloader_train, dataloader_val, lr=1e-6, name='test_entangled_block_l1_contrastive', criterion=nn.L1Loss(), epochs=30, contrastive_loss=True, use_blocks=True)
