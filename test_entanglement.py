@@ -12,26 +12,29 @@ import torch.distributions as dist
 debug = True
 device = torch.device('cpu')
 
-names = ['optimal1_toy', 'optimal1_toy_contrastive', 'optimal1_musdb', 'optimal1_musdb_contrastive']
+names = ['musdb_small_newelbo', 'toy_small_newelbo']
 
 def evaluate_parameters():
     for name in names:
         print(name)
 
         if name.__contains__('toy'):
-            image_w = 128
             dataset_name = 'toy_dataset'
         else:
-            image_w = 384
             dataset_name = 'musdb_18_prior'
 
-        dataset_val = PriorDataset('val', debug=debug, name=dataset_name, image_w=image_w)
+        hps = json.load(open(f'hyperparameters/{name}.json'))
+
+        image_h = hps['image_h']
+        image_w = hps['image_w']
+
+        dataset_val = PriorDataset('val', debug=debug, name=dataset_name, image_w=image_w, image_h=image_h)
         dataloader_val = DataLoader(dataset_val, num_workers=12, batch_size=16, shuffle=True)
 
         mus = [[], [], [], []]
         vars = [[], [], [], []]
 
-        vae = VAE(latent_dim=448, image_h=1024, image_w=image_w, kernel_size=5, channels=[8, 16, 32, 64, 128, 256, 512]).to(
+        vae = VAE(use_blocks=False, latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, kernel_sizes=hps['kernel_sizes'], channels=hps['channels'], strides=hps['strides']).to(
             device)
 
         vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
@@ -69,21 +72,24 @@ def create_noise_images(num_images, height, width):
 
 
 if __name__ == "__main__":
-    dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_w=128)
-    dataloader_val = DataLoader(dataset_val, num_workers=12, batch_size=16, shuffle=False)
-
-    name = 'cyclic_toy_kl'
+    name = 'musdb_small_newelbo'
 
     hps = json.load(open(f'hyperparameters/{name}.json'))
 
-    vae = VAE(latent_dim=hps['hidden'], image_h=1024, image_w=128, kernel_size=hps['kernel_size'], channels=hps['channels']).to(
-        device)
+    image_h = hps['image_h']
+    image_w = hps['image_w']
+
+    dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_w=image_w, image_h=image_h)
+    dataloader_val = DataLoader(dataset_val, num_workers=12, batch_size=1, shuffle=True)
+
+    vae = VAE(use_blocks=False, latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, kernel_sizes=hps['kernel_sizes'], channels=hps['channels'], strides=hps['strides']).to(
+            device)
 
     vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
 
     kls = []
 
-    noise_images = create_noise_images(1, 1024, 128)
+    noise_images = create_noise_images(16,  image_h, image_w)
 
     kl_divs_random = []
     log_probs_random = []
@@ -104,6 +110,7 @@ if __name__ == "__main__":
 
     kl_divs_tensor = torch.stack(kl_divs_random, dim=0)
     print(f'Random: {np.mean(log_probs_random)}')
+    print(f'Random: {torch.mean(kl_divs_tensor, dim=0)}')
 
     kl_divs_vae = []
     log_probs_vae = []
@@ -127,5 +134,5 @@ if __name__ == "__main__":
 
     kl_divs_vae_tensor = torch.stack(kl_divs_vae, dim=0)
 
-    #print(f'VAE: {torch.mean(kl_divs_vae_tensor, dim=0)}')
+    print(f'VAE: {torch.mean(kl_divs_vae_tensor, dim=0)}')
     print(f'VAE: {np.mean(log_probs_random)}')

@@ -10,27 +10,28 @@ device = torch.device('cpu')# torch.device("cuda" if torch.cuda.is_available() e
 
 dataset_val = PriorDataset('val', debug=debug)
 
-names = ['cyclic_toy_kl', 'cyclic_musdb', 'cyclic_musdb_kl']
+names = ['musdb_small_newelbo']
 
 for name in names:
     print(name)
 
     if name.__contains__('toy'):
-        image_w = 128
         dataset_name = 'toy_dataset'
     else:
-        image_w = 384
         dataset_name = 'musdb_18_prior'
 
     hps = json.load(open(f'hyperparameters/{name}.json'))
 
-    vae = VAE(latent_dim=hps['hidden'], image_h=1024, image_w=image_w, kernel_size=hps['kernel_size'], channels=hps['channels']).to(device)
+    image_h = hps['image_h']
+    image_w = hps['image_w']
+
+    vae = VAE(latent_dim=hps['hidden'], use_blocks=False, image_h=image_h, image_w=image_w, kernel_sizes=hps['kernel_sizes'], strides=hps['strides'], channels=hps['channels']).to(device)
 
     vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
 
-    dataset_val = PriorDataset('val', debug=debug, name=dataset_name, image_h=1024, image_w=image_w)
+    dataset_val = PriorDataset('val', debug=debug, name=dataset_name, image_h=image_h, image_w=image_w)
 
-    idx = 19
+    idx = 93
     datapoint = dataset_val[idx]
 
     output, _, _ = vae(datapoint['spectrogram'].unsqueeze(dim=0).to(device).float())

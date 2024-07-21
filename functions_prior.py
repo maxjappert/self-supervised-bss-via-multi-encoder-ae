@@ -10,7 +10,7 @@ import torch.nn as nn
 import torchaudio
 from PIL import Image
 from torch.distributions import Normal, kl_divergence
-from torch.nn import BCEWithLogitsLoss, L1Loss
+from torch.nn import BCEWithLogitsLoss, L1Loss, MSELoss
 from torch.optim.lr_scheduler import CyclicLR
 from torch.utils.data import Dataset
 from torchvision import transforms
@@ -88,9 +88,9 @@ class PriorDataset(Dataset):
 
         self.transforms = transforms.Compose([
             transforms.ToTensor(),  # Convert numpy array to tensor
-            transforms.Resize((image_h, image_w))
+            transforms.Resize((image_h, image_w)),
             # TODO: Try normalisation
-            #transforms.Normalize(mean=[0.5], std=[0.5]),  # Normalize to mean=0.5, std=0.5
+            # transforms.Normalize(mean=[0.5], std=[0.5]),  # Normalize to mean=0.5, std=0.5
             #transforms.Lambda(lambda x: torch.log(x + 1e-9)),  # Apply logarithmic scaling
         ])
 
@@ -212,7 +212,7 @@ class VAE(nn.Module):
             strides = []
 
             for _ in range(len(channels)):
-                strides.append(2)
+                strides.append(1)
 
         assert len(channels) == len(strides) == len(kernel_sizes)
 
@@ -224,14 +224,10 @@ class VAE(nn.Module):
         self.encoder = nn.Sequential()
         for c_i in range(len(channels)-1):
             if use_blocks:
-                self.encoder.append(EncoderBlock(channels[c_i], channels[c_i + 1], kernel_size=kernel_sizes[c_i]))
+                self.encoder.append(EncoderBlock(channels[c_i], channels[c_i + 1], kernel_size=kernel_sizes[c_i], stride=strides[c_i]))
             else:
                 self.encoder.append(nn.Conv2d(channels[c_i], channels[c_i+1], kernel_size=kernel_sizes[c_i], stride=strides[c_i], padding=int((kernel_sizes[c_i]-1)/2)))
                 self.encoder.append(nn.ReLU())
-
-        #num_output_features = channels[-1] * 68 * 28
-
-        # 32, 12
 
         #self.compressed_size_h = 1024 // 2**len(channels) if use_blocks else compute_size(1024, len(channels), 2, 3, 3)
         #self.compressed_size_w = 384 // 2**len(channels) if use_blocks else compute_size(384, len(channels), 2, 3, 3)
@@ -252,7 +248,7 @@ class VAE(nn.Module):
             if use_blocks:
                 self.decoder.append(DecoderBlock(channels[c_i], channels[c_i - 1], c_i,
                                              'none', len(channels),
-                                             image_h, image_w, kernel_size=kernel_sizes[c_i]-1))
+                                             image_h, image_w, kernel_size=kernel_sizes[c_i-1], stride=strides[c_i-1]))
             else:
                 self.decoder.append(nn.ConvTranspose2d(channels[c_i], channels[c_i-1], kernel_size=kernel_sizes[c_i-1], stride=strides[c_i-1], padding=int((kernel_sizes[c_i-1]-1)/2)))
                 self.decoder.append(nn.ReLU())
@@ -288,12 +284,12 @@ class VAE(nn.Module):
 
         # KL divergence
         kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        loss_fn = L1Loss()
+        loss_fn = MSELoss(reduction='sum')
         recon_loss = loss_fn(recon, x)
 
         # ELBO as approximation of log-probability
-        elbo = -(recon_loss - kl_div)
-        return elbo
+        elbo = -(recon_loss + kl_div)
+        return elbo / x.size(0)
 
 
 
@@ -404,7 +400,7 @@ def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50
             f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
         print(f'Train accuracy: {100 * correct_train / total_train:.2f}%, Val accuracy: {100 * correct_val / total_val:.2f}%')
 
-def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight):
+def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w):
     """
     Saves the passed hyperparameters to a json file.
     :return: None
@@ -418,7 +414,9 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
         'use_blocks': use_blocks,
         'contrastive_weight': contrastive_weight,
         'contrastive_loss': contrastive_loss,
-        'kld_weight': kld_weight
+        'kld_weight': kld_weight,
+        'image_h': image_h,
+        'image_w': image_w
     }
 
     if not os.path.exists('hyperparameters'):
@@ -428,17 +426,19 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
         json.dump(variables, file)
 
 
-def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epochs=50, latent_dim=64, criterion=nn.L1Loss(), name=None, contrastive_weight=0.01, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None):
+def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.L1Loss(), name=None, contrastive_weight=0.01, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None):
     print(f'Training {name}')
 
-    export_hyperparameters_to_file(name, channels, latent_dim, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight)
+    criterion.reduction = 'sum'
+
+    export_hyperparameters_to_file(name, channels, latent_dim, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w)
 
     vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_sizes=kernel_sizes, strides=strides, image_h=image_h, image_w=image_w).to(device)
 
     optimiser = torch.optim.Adam(vae.parameters(), lr=lr)
 
     if cyclic_lr:
-        scheduler = CyclicLR(optimiser, base_lr=1e-6, max_lr=1e-4, step_size_up=4000, mode='triangular')
+        scheduler = CyclicLR(optimiser, base_lr=lr*0.1, max_lr=lr*10, step_size_up=2000, mode='triangular')
 
     sup_con_loss = SupConLoss()
     #criterion = nn.MSELoss()
@@ -517,7 +517,7 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=True, epoc
             best_val_sdr = val_sdr
 
         if visualise:
-            datapoint = data_loader_val.dataset[4]
+            datapoint = data_loader_val.dataset[9]
             output, _, _ = vae(datapoint['spectrogram'].unsqueeze(dim=0).to(device).float())
 
             save_spectrogram_to_file(output.squeeze().detach().cpu().numpy(), f'{name}_{epoch}.png')

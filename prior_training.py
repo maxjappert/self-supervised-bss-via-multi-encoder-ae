@@ -11,16 +11,16 @@ debug = True
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-channels = [[32, 64, 128, 256, 512], [16, 32, 64, 128, 256], [16, 32, 64, 128],
-                   [8, 16, 32, 64, 128, 256, 512], [8, 16, 32, 64, 128, 256], [16, 32, 64, 128], [16, 32, 64]]
+image_h = 32
+image_w = 32
 
-hps = {'latent_dim': 448, 'channel_index': 3, 'batch_size': 16, 'lr': 1e-04, 'kernel_size': 5, 'beta': 1e-06}
+batch_size = 512
 
-dataset_train = PriorDataset('train', debug=debug, name='musdb_18_prior')
-dataset_val = PriorDataset('val', debug=debug, name='musdb_18_prior')
+dataset_train = PriorDataset('train', debug=debug, name='musdb_18_prior', image_h=image_h, image_w=image_w)
+dataset_val = PriorDataset('val', debug=debug, name='musdb_18_prior', image_h=image_h, image_w=image_w)
 
-dataloader_train = DataLoader(dataset_train, batch_size=hps['batch_size'], shuffle=True, num_workers=12)
-dataloader_val = DataLoader(dataset_val, batch_size=hps['batch_size'], shuffle=True, num_workers=12)
+dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=12)
+dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=12)
 
 
 # train_vae(dataloader_train,
@@ -59,11 +59,30 @@ dataloader_val = DataLoader(dataset_val, batch_size=hps['batch_size'], shuffle=T
 #           image_h=1024,
 #           image_w=384)
 
-dataset_train = PriorDataset('train', debug=debug, name='toy_dataset', image_h=28, image_w=28)
-dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_h=28, image_w=28)
+train_vae(dataloader_train,
+          dataloader_val,
+          kernel_sizes=[3, 3, 3, 3, 3],
+          strides=[1, 2, 2, 2, 1],
+          cyclic_lr=True,
+          lr=1e-03,
+          channels=[32, 64, 128, 256, 512],
+          name='musdb_small_newelbo_long',
+          criterion=MSELoss(),
+          epochs=50,
+          contrastive_loss=False,
+          recon_weight=1,
+          use_blocks=False,
+          latent_dim=1024,
+          kld_weight=1,
+          visualise=True,
+          image_h=image_h,
+          image_w=image_w)
 
-dataloader_train = DataLoader(dataset_train, batch_size=1024, shuffle=True, num_workers=12)
-dataloader_val = DataLoader(dataset_val, batch_size=1024, shuffle=True, num_workers=12)
+dataset_train = PriorDataset('train', debug=debug, name='toy_dataset', image_h=image_h, image_w=image_w)
+dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_h=image_h, image_w=image_w)
+
+dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=12)
+dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=12)
 
 # train_vae(dataloader_train,
 #           dataloader_val,
@@ -101,22 +120,22 @@ dataloader_val = DataLoader(dataset_val, batch_size=1024, shuffle=True, num_work
 
 train_vae(dataloader_train,
           dataloader_val,
-          kernel_sizes=[3, 3, 3, 3],
-          strides=[1, 2, 2, 1],
-          cyclic_lr=False,
+          kernel_sizes=[3, 3, 3, 3, 3],
+          strides=[1, 2, 2, 2, 1],
+          cyclic_lr=True,
           lr=1e-03,
-          channels=[32, 64, 64, 64],
-          name='cyclic_toy_small',
+          channels=[32, 64, 128, 256, 512],
+          name='toy_small_newelbo_long',
           criterion=MSELoss(),
           epochs=50,
           contrastive_loss=False,
-          recon_weight=100000,
+          recon_weight=1,
           use_blocks=False,
-          latent_dim=32,
+          latent_dim=1024,
           kld_weight=1,
           visualise=True,
-          image_h=28,
-          image_w=28)
+          image_h=image_h,
+          image_w=image_w)
 
 #
 #vae_block_l1_contrastive = train_vae(dataloader_train, dataloader_val, lr=1e-6, name='test_entangled_block_l1_contrastive', criterion=nn.L1Loss(), epochs=30, contrastive_loss=True, use_blocks=True)
