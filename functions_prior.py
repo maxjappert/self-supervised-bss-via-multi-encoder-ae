@@ -192,7 +192,7 @@ def compute_size(size, num_layers, stride, kernel_size, padding):
 
 # Define the VAE
 class VAE(nn.Module):
-    def __init__(self, latent_dim=64, channels=[32, 64, 128, 256, 512], use_blocks=True, image_h=1024, image_w=384, kernel_sizes=None, strides=None):
+    def __init__(self, latent_dim=64, channels=[32, 64, 128, 256, 512], use_blocks=True, image_h=1024, image_w=384, kernel_sizes=None, strides=None, batch_norm=False):
         super(VAE, self).__init__()
         #self.encoder = models.resnet18(weights=None)
         #self.encoder.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -227,6 +227,10 @@ class VAE(nn.Module):
                 self.encoder.append(EncoderBlock(channels[c_i], channels[c_i + 1], kernel_size=kernel_sizes[c_i], stride=strides[c_i]))
             else:
                 self.encoder.append(nn.Conv2d(channels[c_i], channels[c_i+1], kernel_size=kernel_sizes[c_i], stride=strides[c_i], padding=int((kernel_sizes[c_i]-1)/2)))
+
+                if batch_norm:
+                    self.encoder.append(nn.BatchNorm2d(channels[c_i+1]))
+
                 self.encoder.append(nn.ReLU())
 
         #self.compressed_size_h = 1024 // 2**len(channels) if use_blocks else compute_size(1024, len(channels), 2, 3, 3)
@@ -251,7 +255,14 @@ class VAE(nn.Module):
                                              image_h, image_w, kernel_size=kernel_sizes[c_i-1], stride=strides[c_i-1]))
             else:
                 self.decoder.append(nn.ConvTranspose2d(channels[c_i], channels[c_i-1], kernel_size=kernel_sizes[c_i-1], stride=strides[c_i-1], padding=int((kernel_sizes[c_i-1]-1)/2)))
-                self.decoder.append(nn.ReLU())
+
+                if c_i > 1:
+                    if batch_norm:
+                        self.decoder.append(nn.BatchNorm2d(channels[c_i-1]))
+                    self.decoder.append(nn.ReLU())
+                else:
+                    # Add after last layer without batch norm
+                    self.decoder.append(nn.Sigmoid())
 
     def encode(self, x):
         encoded = self.encoder(x)#.squeeze(dim=2).squeeze(dim=2)
@@ -426,14 +437,14 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
         json.dump(variables, file)
 
 
-def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.L1Loss(), name=None, contrastive_weight=0.01, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None):
+def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.L1Loss(), name=None, contrastive_weight=0.01, contrastive_loss=False, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None, batch_norm=False):
     print(f'Training {name}')
 
     criterion.reduction = 'sum'
 
     export_hyperparameters_to_file(name, channels, latent_dim, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w)
 
-    vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_sizes=kernel_sizes, strides=strides, image_h=image_h, image_w=image_w).to(device)
+    vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_sizes=kernel_sizes, strides=strides, image_h=image_h, image_w=image_w, batch_norm=batch_norm).to(device)
 
     optimiser = torch.optim.Adam(vae.parameters(), lr=lr)
 
@@ -456,8 +467,12 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
         for idx, batch in enumerate(data_loader_train):
             optimiser.zero_grad()
 
-            spectrograms = batch['spectrogram'].to(device)
-            labels = batch['label'].to(device)
+            if type(batch) is dict:
+                spectrograms = batch['spectrogram'].to(device)
+                labels = batch['label'].to(device)
+            else:
+                spectrograms = batch[0]
+                labels = batch[1]
 
             #print(spectrograms.shape)
 
@@ -494,8 +509,13 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
         val_loss = 0
         with torch.no_grad():
             for batch in data_loader_val:
-                spectrograms = batch['spectrogram'].to(device)
-                labels = batch['label'].to(device)
+
+                if type(batch) is dict:
+                    spectrograms = batch['spectrogram'].to(device)
+                    labels = batch['label'].to(device)
+                else:
+                    spectrograms = batch[0]
+                    labels = batch[1]
 
                 recon, mu, logvar = vae(spectrograms.float())
                 recon_loss = criterion(recon.float(), spectrograms.float()) * recon_weight
@@ -518,12 +538,18 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
 
         if visualise:
             datapoint = data_loader_val.dataset[9]
-            output, _, _ = vae(datapoint['spectrogram'].unsqueeze(dim=0).to(device).float())
+
+            if type(datapoint) is dict:
+                spectrogram = datapoint['spectrogram']
+            else:
+                spectrogram = datapoint[0]
+
+            output, _, _ = vae(spectrogram.unsqueeze(dim=0).to(device).float())
 
             save_spectrogram_to_file(output.squeeze().detach().cpu().numpy(), f'{name}_{epoch}.png')
 
             if epoch == 0:
-                save_spectrogram_to_file(datapoint['spectrogram'].squeeze(), f'{name}_gt.png')
+                save_spectrogram_to_file(spectrogram.squeeze(), f'{name}_gt.png')
 
         if verbose:
             print(
