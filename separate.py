@@ -61,7 +61,7 @@ xs = torch.stack(xs, dim=0).to(device)
 for i, x in enumerate(gt_xs):
     save_image(x.view(original_shape), f'images/000_gt_stem_{i}.png')
 
-sigma_start = 0.001
+sigma_start = 0.1
 sigma_end = 0.5
 sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                         end=torch.log10(torch.tensor(sigma_end)),
@@ -112,7 +112,7 @@ for i in range(L):
 
     # vae_sigma = finetune_sigma(vae_og, dataloader_train, dataloader_val, sigmas[i], verbose=True, lr=1e-04)
 
-    name = f'sigma_{np.round(sigmas[i].detach().item(), 2)}'
+    name = f'sigma_{np.round(sigmas[i].detach().item(), 3)}'
     # hps = json.load(open(f'hyperparameters/{name}.json'))
     vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
               channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(

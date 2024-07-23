@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from functions_prior import train_vae, PriorDataset, train_classifier, VAE, SDRLoss
 
-debug = False
+debug = True
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -61,24 +61,24 @@ dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, nu
 #           image_h=1024,
 #           image_w=384)
 
-train_vae(dataloader_train,
-          dataloader_val,
-          kernel_sizes=[3, 3, 3, 3, 3, 3],
-          strides=[1, 1, 2, 2, 1, 1],
-          cyclic_lr=True,
-          lr=1e-03,
-          channels=[32, 64, 128, 256, 512, 1024],
-          name='musdb_small_newelbo_long',
-          criterion=MSELoss(),
-          epochs=50,
-          contrastive_loss=False,
-          recon_weight=1,
-          use_blocks=False,
-          latent_dim=512,
-          kld_weight=1,
-          visualise=True,
-          image_h=image_h,
-          image_w=image_w)
+# train_vae(dataloader_train,
+#           dataloader_val,
+#           kernel_sizes=[3, 3, 3, 3, 3, 3],
+#           strides=[1, 1, 2, 2, 1, 1],
+#           cyclic_lr=True,
+#           lr=1e-03,
+#           channels=[32, 64, 128, 256, 512, 1024],
+#           name='musdb_tiny',
+#           criterion=MSELoss(),
+#           epochs=50,
+#           contrastive_loss=False,
+#           recon_weight=1,
+#           use_blocks=False,
+#           latent_dim=512,
+#           kld_weight=1,
+#           visualise=True,
+#           image_h=image_h,
+#           image_w=image_w)
 
 dataset_train = PriorDataset('train', debug=debug, name='toy_dataset', image_h=image_h, image_w=image_w)
 dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_h=image_h, image_w=image_w)
@@ -122,23 +122,17 @@ dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, nu
 
 train_vae(dataloader_train,
           dataloader_val,
-          kernel_sizes=[3, 3, 3, 3, 3],
-          strides=[1, 2, 2, 2, 1],
-          cyclic_lr=True,
-          lr=1e-03,
-          channels=[32, 64, 128, 256, 512, 1024],
-          name='toy_small_newelbo_long',
-          criterion=MSELoss(),
+          # kernel_sizes=[3, 3, 3, 3, 3],
+          # strides=[1, 2, 2, 2, 1],
+          # cyclic_lr=True,
+          lr=1e-04,
+          channels=[4, 8, 16],
+          name='toy_tiny_bn',
           epochs=50,
-          contrastive_loss=False,
-          recon_weight=1,
-          use_blocks=False,
-          latent_dim=512,
-          kld_weight=1,
+          latent_dim=16,
           visualise=True,
           image_h=image_h,
           image_w=image_w)
-
 #
 #vae_block_l1_contrastive = train_vae(dataloader_train, dataloader_val, lr=1e-6, name='test_entangled_block_l1_contrastive', criterion=nn.L1Loss(), epochs=30, contrastive_loss=True, use_blocks=True)
 ##train_classifier(dataloader_train, dataloader_val, vae_block, lr=1e-3, name='classifier_blocks')
