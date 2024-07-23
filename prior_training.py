@@ -7,20 +7,22 @@ from torch.utils.data import DataLoader
 
 from functions_prior import train_vae, PriorDataset, train_classifier, VAE, SDRLoss
 
-debug = True
+debug = False
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-image_h = 32
-image_w = 32
+image_h = 64
+image_w = 64
 
-batch_size = 512
+batch_size = 256
 
 dataset_train = PriorDataset('train', debug=debug, name='musdb_18_prior', image_h=image_h, image_w=image_w)
 dataset_val = PriorDataset('val', debug=debug, name='musdb_18_prior', image_h=image_h, image_w=image_w)
 
 dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=12)
 dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=12)
+
+
 
 
 # train_vae(dataloader_train,
@@ -61,18 +63,18 @@ dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, nu
 
 train_vae(dataloader_train,
           dataloader_val,
-          kernel_sizes=[3, 3, 3, 3, 3],
-          strides=[1, 2, 2, 2, 1],
+          kernel_sizes=[3, 3, 3, 3, 3, 3],
+          strides=[1, 1, 2, 2, 1, 1],
           cyclic_lr=True,
           lr=1e-03,
-          channels=[32, 64, 128, 256, 512],
+          channels=[32, 64, 128, 256, 512, 1024],
           name='musdb_small_newelbo_long',
           criterion=MSELoss(),
           epochs=50,
           contrastive_loss=False,
           recon_weight=1,
           use_blocks=False,
-          latent_dim=1024,
+          latent_dim=512,
           kld_weight=1,
           visualise=True,
           image_h=image_h,
@@ -124,14 +126,14 @@ train_vae(dataloader_train,
           strides=[1, 2, 2, 2, 1],
           cyclic_lr=True,
           lr=1e-03,
-          channels=[32, 64, 128, 256, 512],
+          channels=[32, 64, 128, 256, 512, 1024],
           name='toy_small_newelbo_long',
           criterion=MSELoss(),
           epochs=50,
           contrastive_loss=False,
           recon_weight=1,
           use_blocks=False,
-          latent_dim=1024,
+          latent_dim=512,
           kld_weight=1,
           visualise=True,
           image_h=image_h,

@@ -1,3 +1,4 @@
+import copy
 import datetime
 import json
 import math
@@ -400,7 +401,7 @@ def train_classifier(data_loader_train, data_loader_val, vae, lr=1e-3, epochs=50
             f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
         print(f'Train accuracy: {100 * correct_train / total_train:.2f}%, Val accuracy: {100 * correct_val / total_val:.2f}%')
 
-def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w):
+def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w, sigma):
     """
     Saves the passed hyperparameters to a json file.
     :return: None
@@ -416,7 +417,8 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
         'contrastive_loss': contrastive_loss,
         'kld_weight': kld_weight,
         'image_h': image_h,
-        'image_w': image_w
+        'image_w': image_w,
+        'sigma': sigma
     }
 
     if not os.path.exists('hyperparameters'):
@@ -426,12 +428,12 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
         json.dump(variables, file)
 
 
-def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.L1Loss(), name=None, contrastive_weight=0.01, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None):
+def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.L1Loss(), name=None, contrastive_weight=0.01, contrastive_loss=True, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=0.0001, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None, sigma=False):
     print(f'Training {name}')
 
     criterion.reduction = 'sum'
 
-    export_hyperparameters_to_file(name, channels, latent_dim, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w)
+    export_hyperparameters_to_file(name, channels, latent_dim, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w, sigma)
 
     vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_sizes=kernel_sizes, strides=strides, image_h=image_h, image_w=image_w).to(device)
 
@@ -452,12 +454,15 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
     for epoch in range(epochs):
         vae.train()
         train_loss = 0
-        sdr = 0
         for idx, batch in enumerate(data_loader_train):
             optimiser.zero_grad()
 
             spectrograms = batch['spectrogram'].to(device)
             labels = batch['label'].to(device)
+
+            if sigma is not None:
+                epsilon = torch.randn(spectrograms.shape).to(device) * sigma**2
+                spectrograms = spectrograms + epsilon
 
             #print(spectrograms.shape)
 
@@ -497,6 +502,9 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
                 spectrograms = batch['spectrogram'].to(device)
                 labels = batch['label'].to(device)
 
+                if sigma is not None:
+                    spectrograms = spectrograms + torch.randn(spectrograms.shape).to(device) * sigma ** 2
+
                 recon, mu, logvar = vae(spectrograms.float())
                 recon_loss = criterion(recon.float(), spectrograms.float()) * recon_weight
                 kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) * kld_weight
@@ -523,7 +531,10 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
             save_spectrogram_to_file(output.squeeze().detach().cpu().numpy(), f'{name}_{epoch}.png')
 
             if epoch == 0:
-                save_spectrogram_to_file(datapoint['spectrogram'].squeeze(), f'{name}_gt.png')
+                spectrogram = datapoint['spectrogram'].squeeze()
+                if sigma is not None:
+                    spectrogram = spectrogram + torch.randn(spectrogram.shape) * sigma**2
+                save_spectrogram_to_file(spectrogram, f'{name}_gt.png')
 
         if verbose:
             print(
@@ -538,3 +549,83 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
                 print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
 
     return best_model, best_val_sdr
+
+
+def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn.MSELoss(), lr=1e-05, epochs=10, verbose=False, visualise=False, recon_weight=1, kld_weight=1):
+
+    criterion.reduction = 'sum'
+
+    vae = og_vae # copy.deepcopy(og_vae)
+    optimiser = torch.optim.Adam(vae.parameters(), lr=lr)
+
+    best_val_loss = float('inf')
+    best_model = None
+
+    for epoch in range(epochs):
+        vae.train()
+        train_loss = 0
+        for idx, batch in enumerate(dataloader_train):
+            optimiser.zero_grad()
+
+            spectrograms_clean = batch['spectrogram'].float()
+            epsilon = torch.randn(spectrograms_clean.shape) * sigma**2
+            spectrograms_sigma = spectrograms_clean + epsilon
+            spectrograms_sigma = spectrograms_sigma.float().to(device)
+
+            recon, mu, logvar = vae(spectrograms_sigma)
+            recon_loss = criterion(recon, spectrograms_sigma) * recon_weight
+            kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) * kld_weight
+
+            loss = recon_loss + kld_loss
+
+            loss.backward()
+            optimiser.step()
+            train_loss += loss.item()
+
+        avg_train_loss = train_loss / len(dataloader_train.dataset)
+
+        vae.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for batch in dataloader_val:
+                spectrograms_clean = batch['spectrogram'].float()
+                spectrograms_sigma = spectrograms_clean + torch.randn(spectrograms_clean.shape) * sigma ** 2
+                spectrograms_sigma = spectrograms_sigma.float().to(device)
+
+                recon, mu, logvar = vae(spectrograms_sigma)
+                recon_loss = criterion(recon, spectrograms_sigma) * recon_weight
+                kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) * kld_weight
+
+                loss = recon_loss + kld_loss
+                val_loss += loss.item()
+
+        avg_val_loss = val_loss / len(dataloader_val.dataset)
+
+
+        if visualise:
+            datapoint = dataloader_val.dataset[9]
+            spectrogram = datapoint['spectrogram'].unsqueeze(dim=0)
+            epsilon = torch.randn(spectrogram.shape) * sigma**2
+            spectrogram = spectrogram + epsilon
+            output, _, _ = vae(spectrogram.to(device).float())
+
+            save_spectrogram_to_file(output.squeeze().detach().cpu().numpy(), f'sigma_{np.round(sigma, 3)}_{epoch}.png')
+
+            if epoch == 0:
+                save_spectrogram_to_file(spectrogram.squeeze(), f'sigma_{np.round(sigma, 3)}_gt.png')
+
+        if verbose:
+            print(
+                f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_model = vae
+
+            if visualise:
+                torch.save(best_model.state_dict(), f'checkpoints/sigma_{np.round(sigma, 3)}.pth')
+                print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as sigma_{np.round(sigma, 3)} with val loss: {best_val_loss:.4f}")
+
+
+
+    return best_model
