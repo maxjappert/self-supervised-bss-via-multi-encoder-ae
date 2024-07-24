@@ -110,10 +110,7 @@ finetune_sigma_models()
 for i in range(L):
     eta_i = delta * sigmas[i]**2 / sigmas[L-1]**2
 
-    # vae_sigma = finetune_sigma(vae_og, dataloader_train, dataloader_val, sigmas[i], verbose=True, lr=1e-04)
-
     name = f'sigma_{np.round(sigmas[i].detach().item(), 3)}'
-    # hps = json.load(open(f'hyperparameters/{name}.json'))
     vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
               channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
         device)
@@ -121,13 +118,11 @@ for i in range(L):
 
     for t in range(T):
         epsilon_t = torch.randn(xs.shape, requires_grad=True).to(device)
-        new_xs = []
 
-        # xs_sigma = xs.view((k, 1, image_h, image_w)) + torch.randn((k, 1, image_h, image_w)).to(device) * sigmas[i]**2
         elbo = vae.log_prob(xs.view((k, 1, image_h, image_w))).float().to(device)
         grad_log_p_x = torch.autograd.grad(elbo, xs, retain_graph=True)[0]
         u = xs + eta_i * grad_log_p_x + torch.sqrt(2 * eta_i) * epsilon_t
-        temp = (eta_i / sigmas[i] ** 2) * (m.squeeze() - g(xs)).float() * alpha
+        temp = (eta_i / sigmas[i] ** 2) * torch.eye(len(m.squeeze())) * (m.squeeze() - g(xs)).float()
         xs = u - temp
 
     x_chain.append(xs)

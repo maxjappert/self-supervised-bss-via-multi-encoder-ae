@@ -293,12 +293,10 @@ class VAE(nn.Module):
     def log_prob(self, x):
         recon, mu, logvar = self.forward(x)
 
-        # KL divergence
         kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         loss_fn = MSELoss(reduction='sum')
         recon_loss = loss_fn(recon, x)
 
-        # ELBO as approximation of log-probability
         elbo = -(recon_loss + kl_div)
         return elbo / x.size(0)
 
