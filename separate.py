@@ -34,17 +34,25 @@ def minmax_rows(old_tensor):
     new_tensor = torch.zeros_like(old_tensor)
 
     for i in range(old_tensor.shape[0]):
-        new_tensor[i] = minmax_normalise(old_tensor[i])
+        individual_datapoint = old_tensor[i]
+        new_tensor[i] = minmax_normalise(individual_datapoint)
 
     return new_tensor
 
+torch.autograd.set_detect_anomaly(True)
 
 def gradient_log_px(x, vae):
-    x.requires_grad_(True)  # Enable gradient computation with respect to x
+    x = x.clone().detach().requires_grad_(True)  # Clone and enable gradient computation with respect to x
+
+    if x.grad is not None:
+        x.grad.zero_()  # Clear existing gradients if any
+
+    # x.requires_grad_(True)  # Enable gradient computation with respect to x
     elbo = vae.log_prob(x)
     elbo.backward()  # Compute gradients
-    grad_log_px = x.grad  # Get the gradient of the ELBO with respect to x
+    # grad_log_px = x.grad  # Get the gradient of the ELBO with respect to x
     # x.requires_grad_(False)  # Disable gradient computation
+    grad_log_px = x.grad.clone().detach()  # Clone the gradient to avoid in-place modifications
     return grad_log_px
 
 
@@ -52,7 +60,7 @@ def g(stems):
     return minmax_normalise(torch.sum(torch.stack(stems, dim=0) * alpha if type(stems) is list else stems * alpha, dim=0))
 
 
-device = torch.device('cuda')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # name = 'musdb_small_newelbo'
 name = 'musdb_tiny_optimal_2'
@@ -68,7 +76,7 @@ if name.__contains__('toy'):
     train_dataset = PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=k, debug=debug)
     val_dataset = PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=k, debug=debug)
 else:
-    train_dataset = PriorDataset('train', image_h=image_h, image_w=image_w, name='musdb_18_prior', num_stems=k, debug=debug)
+    train_dataset = PriorDataset('train', image_h=image_h, image_w=image_w, name='musdb_18_prior', num_stems=k, debug=False)
     val_dataset = PriorDataset('val', image_h=image_h, image_w=image_w, name='musdb_18_prior', num_stems=k, debug=debug)
 
 dataloader_train = DataLoader(train_dataset, batch_size=256, shuffle=True, num_workers=12)
@@ -76,10 +84,10 @@ dataloader_val = DataLoader(val_dataset, batch_size=256, shuffle=True, num_worke
 
 L = 10
 T = 100
-alpha = 1# /k
-delta = 2 * 1e-05
+alpha = 1/k
+delta = 2 * 1
 
-gt_xs = [val_dataset[i]['spectrogram'].view(-1) for i in range(k)]
+gt_xs = [val_dataset[i]['spectrogram'] for i in range(k)]
 m = g(gt_xs).to(device)
 
 original_shape = (image_h, image_w)
@@ -91,12 +99,13 @@ vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks
 
 vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
 
-xs = [torch.rand(image_h * image_w, requires_grad=True) for _ in range(k)]
+xs = torch.rand(k, 1, image_h, image_w, requires_grad=True)
+# xs = [torch.rand(image_h, image_w, requires_grad=True) for _ in range(k)]
 # xs = [vae.decode(torch.randn(hps['hidden']).unsqueeze(dim=0).to(device)).squeeze(dim=0).view(-1) for _ in range(k)]
-xs = torch.stack(xs, dim=0).to(device)
+# xs = torch.stack(xs, dim=0).to(device)
 
 for i, x in enumerate(gt_xs):
-    save_image(x.view(original_shape), f'images/000_gt_stem_{i}.png')
+    save_image(x, f'images/000_gt_stem_{i}.png')
 
 sigma_start = 0.1
 sigma_end = 0.5
@@ -105,7 +114,7 @@ sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                         steps=L, base=10).flip(dims=[0])
 sigmas.requires_grad_(True)
 
-save_image(m.view(original_shape), 'images/000_m.png')
+save_image(m, 'images/000_m.png')
 
 x_chain = []
 
@@ -146,6 +155,8 @@ def train_sigma_models():
 
 # finetune_sigma_models()
 
+xs.retain_grad = True
+
 for i in range(L):
     eta_i = delta * sigmas[i]**2 / sigmas[L-1]**2
 
@@ -158,30 +169,40 @@ for i in range(L):
     for t in range(T):
         epsilon_t = torch.randn(xs.shape, requires_grad=True).to(device)
 
-        # elbo = vae.log_prob(xs.view((k, 1, image_h, image_w))).float().to(device)
-        # grad_log_p_x = torch.autograd.grad(elbo, xs, retain_graph=True)[0]
+        if xs.grad is not None:
+            xs.grad.zero_()
 
-        grad_log_p_x = gradient_log_px(xs.view((k, 1, image_h, image_w)), vae)
+        elbo = vae.log_prob(xs).to(device)
+        grad_log_p_x = torch.autograd.grad(elbo, xs, retain_graph=True)[0]
+
+        # grad_log_p_x = gradient_log_px(xs, vae)
 
         u = xs + eta_i * grad_log_p_x + torch.sqrt(2 * eta_i) * epsilon_t
-        temp = (eta_i / sigmas[i] ** 2) * (m.squeeze() - g(xs)).float()
+        temp = (eta_i / sigmas[i] ** 2) * (m.squeeze() - g(xs)).float() * alpha
         xs = u - temp
-        #xs[0] = minmax_normalise(xs[0])
-        #xs[1] = minmax_normalise(xs[1])
-        xs = minmax_rows(xs)
+        # xs = minmax_rows(xs)
 
-    x_chain.append(xs)
+
+    # plt.imshow(xs[0].squeeze().detach(), cmap='gray')
+    # plt.show()
+    # plt.imshow(xs[1].squeeze().detach(), cmap='gray')
+    # plt.show()
+
+    # x_chain.append((xs-1)*-1)
+    x_chain.append(minmax_rows(xs))
 
     # for j in range(k):
     #     save_image(x_chain[-1][j].view(image_h, image_w), f'images/000_recon_stem_{j + 1}.png')
 
     print(f'Appended {i+1}/{L}')
 
-final_xs = x_chain[-1].view((k, image_h, image_w))
+final_xs = x_chain[-1]
 
 for i in range(k):
-    save_image(final_xs[i], f'images/000_recon_stem_{i+1}.png')
+    plt.imshow(final_xs[i].squeeze().detach(), cmap='gray')
+    plt.show()
+    # save_image(final_xs[i], f'images/000_recon_stem_{i+1}.png')
 
 m_recon = g(final_xs)
-save_image(m_recon, 'images/000_m_recon.png')
+# save_image(m_recon, 'images/000_m_recon.png')
 
