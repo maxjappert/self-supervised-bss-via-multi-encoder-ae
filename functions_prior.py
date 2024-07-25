@@ -75,9 +75,10 @@ class SDRLoss(torch.nn.Module):
 
 
 class PriorDataset(Dataset):
-    def __init__(self, split, debug=False, image_h=1024, image_w=384, name='musdb_18_prior', num_stems=4):
+    def __init__(self, split, debug=False, image_h=1024, image_w=384, name='musdb_18_prior', num_stems=4, sigma=None):
         self.data_point_names = []
         self.master_path = os.path.join('data', name, split)
+        self.sigma = sigma
 
         for data_folder in os.listdir(self.master_path):
             if random.random() < 0.9 and debug:
@@ -118,7 +119,12 @@ class PriorDataset(Dataset):
 
         #print(np.array(Image.open(os.path.join(self.master_path, self.data_point_names[idx] + '.png'))).mean(axis=-1).shape)
 
-        spectrogram_np = self.min_max(np.array(Image.open(os.path.join(self.master_path, self.data_point_names[idx] + '.png'))).mean(axis=-1))
+        unnormalised_spectrogram = np.array(Image.open(os.path.join(self.master_path, self.data_point_names[idx] + '.png'))).mean(axis=-1)
+
+        if self.sigma is not None:
+            unnormalised_spectrogram += np.random.randn(*unnormalised_spectrogram.shape) * self.sigma**2
+
+        spectrogram_np = self.min_max(unnormalised_spectrogram)
         spectrogram = self.transforms(spectrogram_np)
 
         #print(spectrogram.min())
@@ -441,6 +447,10 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
 
     criterion.reduction = 'sum'
 
+    if sigma is not None:
+        data_loader_train.dataset.sigma = sigma
+        data_loader_val.dataset.sigma = sigma
+
     export_hyperparameters_to_file(name, channels, latent_dim, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w, sigma)
 
     vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_sizes=kernel_sizes, strides=strides, image_h=image_h, image_w=image_w, batch_norm=batch_norm).to(device)
@@ -474,10 +484,6 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
                 spectrograms = batch[0].to(device)
                 labels = batch[1].to(device)
             #print(spectrograms.shape)
-
-            if sigma is not None:
-                epsilon = torch.randn(spectrograms.shape).to(device) * sigma**2
-                spectrograms = spectrograms + epsilon
 
             recon, mu, logvar = vae(spectrograms.float())
             recon_loss = criterion(recon.float(), spectrograms.float()) * recon_weight
@@ -521,9 +527,6 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
                 else:
                     spectrograms = batch[0].to(device)
                     labels = batch[1].to(device)
-
-                if sigma is not None:
-                    spectrograms = spectrograms + torch.randn(spectrograms.shape).to(device) * sigma ** 2
 
                 recon, mu, logvar = vae(spectrograms.float())
                 recon_loss = criterion(recon.float(), spectrograms.float()) * recon_weight
@@ -589,6 +592,10 @@ def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn
     vae = og_vae # copy.deepcopy(og_vae)
     optimiser = torch.optim.Adam(vae.parameters(), lr=lr)
 
+    if sigma is not None:
+        dataloader_train.dataset.sigma = sigma
+        dataloader_val.dataset.sigma = sigma
+
     best_val_loss = float('inf')
     best_model = None
 
@@ -598,13 +605,10 @@ def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn
         for idx, batch in enumerate(dataloader_train):
             optimiser.zero_grad()
 
-            spectrograms_clean = batch['spectrogram'].float()
-            epsilon = torch.randn(spectrograms_clean.shape) * sigma**2
-            spectrograms_sigma = spectrograms_clean + epsilon
-            spectrograms_sigma = spectrograms_sigma.float().to(device)
+            spectrograms = batch['spectrogram'].float().to(device)
 
-            recon, mu, logvar = vae(spectrograms_sigma)
-            recon_loss = criterion(recon, spectrograms_sigma) * recon_weight
+            recon, mu, logvar = vae(spectrograms)
+            recon_loss = criterion(recon, spectrograms) * recon_weight
             kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) * kld_weight
 
             loss = recon_loss + kld_loss
@@ -619,12 +623,10 @@ def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn
         val_loss = 0
         with torch.no_grad():
             for batch in dataloader_val:
-                spectrograms_clean = batch['spectrogram'].float()
-                spectrograms_sigma = spectrograms_clean + torch.randn(spectrograms_clean.shape) * sigma ** 2
-                spectrograms_sigma = spectrograms_sigma.float().to(device)
+                spectrograms = batch['spectrogram'].float().to(device)
 
-                recon, mu, logvar = vae(spectrograms_sigma)
-                recon_loss = criterion(recon, spectrograms_sigma) * recon_weight
+                recon, mu, logvar = vae(spectrograms)
+                recon_loss = criterion(recon, spectrograms) * recon_weight
                 kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) * kld_weight
 
                 loss = recon_loss + kld_loss

@@ -16,7 +16,7 @@ from functions_prior import PriorDataset, train_vae, SDRLoss
 def objective(trial):
     #channel_options = [[2, 4, 8], [4, 8, 16], [8, 16, 32], [16, 32, 64], [32, 64, 128], [64, 128, 256], [24, 48, 96, 144], [16, 32, 64, 128], [16, 32, 64, 128, 256], [24, 48, 96, 144, 196]]
 
-    channel_options = [[4, 8], [4, 8, 16], [4, 8, 16, 32], [4, 8, 16, 32, 64]]
+    channel_options = [[4, 8], [4, 8, 16], [4, 8, 16, 32], [4, 8, 16, 32, 64], [4, 8, 16, 32, 64, 128]]
 
     # Suggest hyperparameters
     latent_dim = trial.suggest_int('latent_dim', 4, 256, step=4)
@@ -38,8 +38,8 @@ def objective(trial):
     image_w = 64
 
     # Load dataset
-    dataset_train = PriorDataset('train', debug=True, name='toy_dataset', image_h=image_h, image_w=image_w)
-    dataset_val = PriorDataset('val', debug=True, name='toy_dataset', image_h=image_h, image_w=image_w)
+    dataset_train = PriorDataset('train', debug=True, name='musdb_18_prior', image_h=image_h, image_w=image_w)
+    dataset_val = PriorDataset('val', debug=True, name='musdb_18_prior', image_h=image_h, image_w=image_w)
 
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=12)
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=12)
@@ -72,7 +72,7 @@ def objective(trial):
 
 # Set up the Optuna study
 study = optuna.create_study(direction='minimize')
-study.optimize(objective, n_trials=1000)
+study.optimize(objective, n_trials=200)
 
 # Print the best hyperparameters
 print("Best hyperparameters: ", study.best_params)
