@@ -180,16 +180,15 @@ for i in range(L):
         u = xs + eta_i * grad_log_p_x + torch.sqrt(2 * eta_i) * epsilon_t
         temp = (eta_i / sigmas[i] ** 2) * (m.squeeze() - g(xs)).float() * alpha
         xs = u - temp
-        # xs = minmax_rows(xs)
-
+        xs = minmax_rows(xs)
 
     # plt.imshow(xs[0].squeeze().detach(), cmap='gray')
     # plt.show()
     # plt.imshow(xs[1].squeeze().detach(), cmap='gray')
     # plt.show()
 
-    # x_chain.append((xs-1)*-1)
-    x_chain.append(minmax_rows(xs))
+    x_chain.append((xs-1)*-1)
+    # x_chain.append((minmax_rows(xs)-1)*-1)
 
     # for j in range(k):
     #     save_image(x_chain[-1][j].view(image_h, image_w), f'images/000_recon_stem_{j + 1}.png')
