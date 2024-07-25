@@ -39,6 +39,13 @@ def minmax_rows(old_tensor):
     return new_tensor
 
 
+def gradient_log_px(x, vae):
+    x.requires_grad_(True)  # Enable gradient computation with respect to x
+    elbo = vae.log_prob(x)
+    elbo.backward()  # Compute gradients
+    grad_log_px = x.grad  # Get the gradient of the ELBO with respect to x
+    # x.requires_grad_(False)  # Disable gradient computation
+    return grad_log_px
 
 
 def g(stems):
@@ -137,7 +144,7 @@ def train_sigma_models():
                   image_w=image_w
                   )
 
-finetune_sigma_models()
+# finetune_sigma_models()
 
 for i in range(L):
     eta_i = delta * sigmas[i]**2 / sigmas[L-1]**2
@@ -151,8 +158,11 @@ for i in range(L):
     for t in range(T):
         epsilon_t = torch.randn(xs.shape, requires_grad=True).to(device)
 
-        elbo = vae.log_prob(xs.view((k, 1, image_h, image_w))).float().to(device)
-        grad_log_p_x = torch.autograd.grad(elbo, xs, retain_graph=True)[0]
+        # elbo = vae.log_prob(xs.view((k, 1, image_h, image_w))).float().to(device)
+        # grad_log_p_x = torch.autograd.grad(elbo, xs, retain_graph=True)[0]
+
+        grad_log_p_x = gradient_log_px(xs.view((k, 1, image_h, image_w)), vae)
+
         u = xs + eta_i * grad_log_p_x + torch.sqrt(2 * eta_i) * epsilon_t
         temp = (eta_i / sigmas[i] ** 2) * (m.squeeze() - g(xs)).float()
         xs = u - temp
