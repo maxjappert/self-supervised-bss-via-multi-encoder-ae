@@ -85,7 +85,7 @@ dataloader_val = DataLoader(val_dataset, batch_size=256, shuffle=True, num_worke
 L = 10
 T = 100
 alpha = 1/k
-delta = 2 * 1
+delta = 2 * 1e-05
 
 gt_xs = [val_dataset[i]['spectrogram'] for i in range(k)]
 m = g(gt_xs).to(device)
@@ -172,13 +172,13 @@ for i in range(L):
         if xs.grad is not None:
             xs.grad.zero_()
 
-        elbo = vae.log_prob(xs).to(device)
+        elbo = vae.log_prob(xs.to(device)).to(device)
         grad_log_p_x = torch.autograd.grad(elbo, xs, retain_graph=True)[0]
 
         # grad_log_p_x = gradient_log_px(xs, vae)
 
-        u = xs + eta_i * grad_log_p_x + torch.sqrt(2 * eta_i) * epsilon_t
-        temp = (eta_i / sigmas[i] ** 2) * (m.squeeze() - g(xs)).float() * alpha
+        u = xs.to(device) + eta_i.to(device) * grad_log_p_x.to(device) + torch.sqrt(2 * eta_i).to(device) * epsilon_t
+        temp = (eta_i / sigmas[i] ** 2) * (m.squeeze().to(device) - g(xs).to(device)).float() * alpha
         xs = u - temp
         xs = minmax_rows(xs)
 
@@ -190,18 +190,18 @@ for i in range(L):
     x_chain.append((xs-1)*-1)
     # x_chain.append((minmax_rows(xs)-1)*-1)
 
-    # for j in range(k):
-    #     save_image(x_chain[-1][j].view(image_h, image_w), f'images/000_recon_stem_{j + 1}.png')
+    for j in range(k):
+        save_image(x_chain[-1][j].view(image_h, image_w), f'images/000_recon_stem_{j + 1}.png')
 
     print(f'Appended {i+1}/{L}')
 
 final_xs = x_chain[-1]
 
 for i in range(k):
-    plt.imshow(final_xs[i].squeeze().detach(), cmap='gray')
+    plt.imshow(final_xs[i].squeeze().detach().cpu(), cmap='gray')
     plt.show()
     # save_image(final_xs[i], f'images/000_recon_stem_{i+1}.png')
 
 m_recon = g(final_xs)
-# save_image(m_recon, 'images/000_m_recon.png')
+save_image(m_recon, 'images/000_m_recon.png')
 

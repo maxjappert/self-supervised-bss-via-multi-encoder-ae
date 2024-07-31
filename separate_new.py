@@ -99,14 +99,14 @@ vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks
 
 vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
 
-xs = [torch.rand(1, image_h, image_w, requires_grad=True) for _ in range(k)]
+xs = [torch.rand(1, image_h, image_w, requires_grad=True).to(device) for _ in range(k)]
 # zs = [torch.randn(hps['hidden'], requires_grad=True) for _ in range(k)]
 # xs = [torch.rand(image_h, image_w, requires_grad=True) for _ in range(k)]
 # xs = [vae.decode(torch.randn(hps['hidden']).unsqueeze(dim=0).to(device)).squeeze(dim=0).view(-1) for _ in range(k)]
 # xs = torch.stack(xs, dim=0).to(device)
 
 for i, x in enumerate(gt_xs):
-    save_image(x, f'images/000_gt_stem_{i}.png')
+    save_image(x, f'images/000_gt_stem_{i}_new.png')
 
 sigma_start = 0.1
 sigma_end = 0.5
@@ -157,20 +157,16 @@ def train_sigma_models():
 # finetune_sigma_models()
 
 def log_p_z(z):
-    """Unnormalized prior distribution p(z) for a standard Gaussian"""
-
-    latent_dim = z.squeeze().shape[0]
-    mvsn = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(latent_dim), torch.eye(latent_dim))
-    return mvsn.log_prob(z)
+    mvsn = torch.distributions.normal.Normal(0, 1)
+    return torch.sum(mvsn.log_prob(z))
 
 
 def log_p_x_given_z(vae, x, z, sigma):
     x_recon = vae.decode(z).squeeze()
-    latent_dim = z.squeeze().shape[0]
-    x_flat = x.view(-1)
-    x_recon_flat = x_recon.view(-1)
-    mvn = torch.distributions.multivariate_normal.MultivariateNormal(x_flat, torch.eye(len(x_flat))*sigma**2)
-    return mvn.log_prob(x_recon_flat)
+    x_flat = x.view(-1).to(device)
+    x_recon_flat = x_recon.view(-1).to(device)
+    mvn = torch.distributions.normal.Normal(x_recon_flat, sigma.to(device)**2)
+    return torch.sum(mvn.log_prob(x_flat))
 
 
 for source_idx in range(k):
@@ -180,10 +176,10 @@ for i in range(L):
     eta_i = delta * sigmas[i]**2 / sigmas[L-1]**2
 
     name = f'sigma_{np.round(sigmas[i].detach().item(), 3)}'
-    vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
-              channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
-        device)
-    vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
+    # vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
+    #           channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
+    #     device)
+    # vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
 
     for t in range(T):
 
@@ -196,7 +192,7 @@ for i in range(L):
                 xs[source_idx].grad.zero_()
 
             mu, log_var = vae.encode(xs[source_idx].unsqueeze(dim=0))
-            z = vae.reparameterise(mu, log_var)
+            z = vae.reparameterise(mu, log_var).to(device)
 
             # elbo = vae.log_prob(xs[source_idx].unsqueeze(dim=0)).to(device)
             # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
@@ -204,21 +200,16 @@ for i in range(L):
             grad_log_p_x_z = torch.autograd.grad(log_p_x_z, [xs[source_idx], z], retain_graph=True, create_graph=True)
 
             # TODO: TEST
-            grad_log_p_x_z = grad_log_p_x_z[0] + torch.mean(grad_log_p_x_z[1].squeeze())
+            grad_log_p_x_z = grad_log_p_x_z[0].to(device) + torch.mean(grad_log_p_x_z[1].squeeze()).to(device)
             # grad_log_p_x = gradient_log_px(xs, vae)
 
             u = xs[source_idx] + eta_i * grad_log_p_x_z + torch.sqrt(2 * eta_i) * epsilon_t
-            temp = (eta_i / sigmas[i] ** 2) * (m - g(xs)).float() * alpha
-            xs[source_idx] = minmax_rows(u - temp)
+            temp = (eta_i / sigmas[i] ** 2) * (m - g(xs)).float() * (torch.eye(m.squeeze().shape[0]) * alpha).to(device)
+            xs[source_idx] = u - temp# minmax_rows(u - temp)
 
             # new_xs.append(minmax_rows(u - temp))
 
         # xs = new_xs
-
-    plt.imshow(xs[0].squeeze().detach(), cmap='gray')
-    plt.show()
-    plt.imshow(xs[1].squeeze().detach(), cmap='gray')
-    plt.show()
     #
         # gradient = torch.autograd.grad(elbo + (1 / (2*sigmas[i]**2)) * torch.sum(m - g(xs))**2, xs, retain_graph=True)
         # xs = xs + eta_i * gradient[0] + torch.sqrt(2 * eta_i) * epsilon_t
@@ -240,10 +231,10 @@ for i in range(L):
 final_xs = x_chain[-1]
 
 for i in range(k):
-    plt.imshow(final_xs[i].squeeze().detach(), cmap='gray')
-    plt.show()
-    # save_image(final_xs[i], f'images/000_recon_stem_{i+1}.png')
+    # plt.imshow(final_xs[i].squeeze().detach(), cmap='gray')
+    # plt.show()
+    save_image(final_xs[i], f'images/000_recon_stem_{i+1}_new.png')
 
 m_recon = g(final_xs)
-# save_image(m_recon, 'images/000_m_recon.png')
+save_image(m_recon, 'images/000_m_recon_new.png')
 
