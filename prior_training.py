@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from functions_prior import train_vae, PriorDataset, train_classifier, VAE, SDRLoss
 
-debug = True
+debug = False
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -22,57 +22,42 @@ dataset_val = PriorDataset('val', debug=debug, name='musdb_18_prior', image_h=im
 dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=12)
 dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=12)
 
-
-
-
-# train_vae(dataloader_train,
-#           dataloader_val,
-#           kernel_size=hps['kernel_size'],
-#           lr=1e-05,
-#           cyclic_lr=True,
-#           channels=channels[hps['channel_index']],
-#           name='cyclic_musdb',
-#           criterion=SDRLoss(),
-#           epochs=50,
-#           contrastive_loss=True,
-#           use_blocks=True,
-#           contrastive_weight=hps['beta'],
-#           latent_dim=512,
-#           kld_weight=hps['beta'],
-#           visualise=True,
-#           image_h=1024,
-#           image_w=384)
-
-# train_vae(dataloader_train,
-#           dataloader_val,
-#           kernel_size=hps['kernel_size'],
-#           lr=1e-05,
-#           cyclic_lr=True,
-#           channels=channels[hps['channel_index']],
-#           name='cyclic_musdb_kl',
-#           criterion=SDRLoss(),
-#           epochs=50,
-#           contrastive_loss=False,
-#           use_blocks=True,
-#           contrastive_weight=hps['beta'],
-#           latent_dim=128,
-#           kld_weight=1,
-#           visualise=True,
-#           image_h=1024,
-#           image_w=384)
-
 train_vae(dataloader_train,
           dataloader_val,
           strides=[1, 1, 1],
           lr=0.001,
           channels=[4, 8, 16],
-          name='musdb_tiny_optimal_2',
+          name=f'musdb_tiny_optimal_2_full_all_stems',
           criterion=MSELoss(),
           epochs=200,
           latent_dim=84,
           visualise=True,
           image_h=image_h,
           image_w=image_w)
+
+print()
+
+for i in range(4):
+    dataset_train = PriorDataset('train', debug=debug, name='musdb_18_prior', image_h=image_h, image_w=image_w, stem_type=i+1)
+    dataset_val = PriorDataset('val', debug=debug, name='musdb_18_prior', image_h=image_h, image_w=image_w, stem_type=i+1)
+
+    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=12)
+    dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=12)
+
+    train_vae(dataloader_train,
+              dataloader_val,
+              strides=[1, 1, 1],
+              lr=0.001,
+              channels=[4, 8, 16],
+              name=f'musdb_tiny_optimal_2_full_stem{i+1}',
+              criterion=MSELoss(),
+              epochs=200,
+              latent_dim=84,
+              visualise=True,
+              image_h=image_h,
+              image_w=image_w)
+
+    print()
 
 dataset_train = PriorDataset('train', debug=debug, name='toy_dataset', image_h=image_h, image_w=image_w)
 dataset_val = PriorDataset('val', debug=debug, name='toy_dataset', image_h=image_h, image_w=image_w)

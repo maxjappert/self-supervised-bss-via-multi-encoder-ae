@@ -1,4 +1,5 @@
 import json
+import random
 import sys
 
 import numpy as np
@@ -10,6 +11,17 @@ from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
 from functions_prior import VAE, PriorDataset, finetune_sigma, train_vae
+
+def extract_x(xz, stem_idx):
+    start_idx = stem_idx * (x_dim + z_dim)
+    end_idx = start_idx + x_dim
+    return xz[start_idx:end_idx]
+
+
+def extract_z(xz, stem_idx):
+    start_idx = (stem_idx+1) * x_dim + stem_idx * z_dim
+    end_idx = start_idx + z_dim
+    return xz[start_idx:end_idx]
 
 
 def minmax_normalise(tensor, min_value=0.0, max_value=1.0):
@@ -57,53 +69,84 @@ def gradient_log_px(x, vae):
 
 
 def g(stems):
-    return minmax_normalise(torch.sum(torch.stack(stems, dim=0) * alpha if type(stems) is list else stems * alpha, dim=0))
+    return torch.sum(torch.stack(stems, dim=0) * alpha if type(stems) is list else stems * alpha, dim=0)
+
+
+def g_xz(xz):
+    total_sum = 0
+
+    for stem_idx in range(k):
+        total_sum += torch.cat([extract_x(xz, stem_idx).to(device), torch.zeros(z_dim).to(device)])
+
+    return total_sum
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # name = 'musdb_small_newelbo'
-name = 'musdb_tiny_optimal_2'
+name = 'toy'
 hps = json.load(open(f'hyperparameters/{name}.json'))
 image_h = hps['image_h']
 image_w = hps['image_w']
 
 k = 2
 
-debug = True
+debug = False
 
-if name.__contains__('toy'):
-    train_dataset = PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=k, debug=debug)
-    val_dataset = PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=k, debug=debug)
-else:
-    train_dataset = PriorDataset('train', image_h=image_h, image_w=image_w, name='musdb_18_prior', num_stems=k, debug=False)
-    val_dataset = PriorDataset('val', image_h=image_h, image_w=image_w, name='musdb_18_prior', num_stems=k, debug=debug)
+train_datasets = [PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug, stem_type=i+1) for i in range(4)]
+val_datasets = [PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug, stem_type=i+1) for i in range(4)]
 
-dataloader_train = DataLoader(train_dataset, batch_size=256, shuffle=True, num_workers=12)
-dataloader_val = DataLoader(val_dataset, batch_size=256, shuffle=True, num_workers=12)
+dataloaders_train = [DataLoader(train_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
+dataloaders_val = [DataLoader(val_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
 
 L = 10
 T = 100
-alpha = 1/k
+alpha = 1
 delta = 2 * 1e-05
 
-gt_xs = [val_dataset[i]['spectrogram'] for i in range(k)]
+original_shape = (image_h, image_w)
+x_dim = image_h*image_w
+z_dim = hps['hidden']
+
+# gt_xs = [val_datasets[i][1]['spectrogram'] for i in range(k)]
+# tODO
+gt_xs = [val_datasets[0][1]['spectrogram'], val_datasets[3][1]['spectrogram']]
 m = g(gt_xs).to(device)
 
-original_shape = (image_h, image_w)
-n = image_h
+gt_xz = [torch.cat([gt_xs[i].view(-1), torch.zeros(z_dim)]) for i in range(k)]
+gt_xz = torch.cat(gt_xz)
+m_xz = g_xz(gt_xz).to(device)
 
 hps = json.load(open(f'hyperparameters/{name}.json'))
-vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'], channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
-    device)
 
-vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
+vaes = []
 
-xs = [torch.rand(1, image_h, image_w, requires_grad=True).to(device) for _ in range(k)]
-# zs = [torch.randn(hps['hidden'], requires_grad=True) for _ in range(k)]
-# xs = [torch.rand(image_h, image_w, requires_grad=True) for _ in range(k)]
-# xs = [vae.decode(torch.randn(hps['hidden']).unsqueeze(dim=0).to(device)).squeeze(dim=0).view(-1) for _ in range(k)]
-# xs = torch.stack(xs, dim=0).to(device)
+# todo
+for i, stem_type in enumerate([0, 3]):
+    vaes.append(VAE(latent_dim=hps['hidden'],
+                    image_h=image_h,
+                    image_w=image_w,
+                    use_blocks=hps['use_blocks'],
+                    channels=hps['channels'],
+                    kernel_sizes=hps['kernel_sizes'],
+                    strides=hps['strides']).to(device))
+
+    vae_name = f'{name}_stem{stem_type+1}'
+    vaes[i].load_state_dict(torch.load(f'checkpoints/{vae_name}.pth', map_location=device))
+
+xz = []
+
+for i in range(k):
+    noise_image = torch.rand(image_h, image_w).to(device)
+    mu, log_var = vaes[i].encode(noise_image.unsqueeze(dim=0).unsqueeze(dim=0))
+    z = vaes[i].reparameterise(mu, log_var)
+    xz.append(noise_image.view(-1))
+    xz.append(z.view(-1))
+
+# create a big flat vector
+xz = torch.cat(xz).to(device)
+xz.requires_grad_(True)
+assert len(xz) == k * (x_dim + z_dim)
 
 for i, x in enumerate(gt_xs):
     save_image(x, f'images/000_gt_stem_{i}_new.png')
@@ -117,9 +160,9 @@ sigmas.requires_grad_(True)
 
 save_image(m, 'images/000_m.png')
 
-x_chain = []
+xz_chain = []
 
-def finetune_sigma_models():
+def finetune_sigma_models(vae, dataloader_train, dataloader_val):
     for sigma in sigmas:
         finetune_sigma(vae,
                        dataloader_train,
@@ -131,7 +174,7 @@ def finetune_sigma_models():
                        epochs=20
                        )
 
-def train_sigma_models():
+def train_sigma_models(dataloader_train, dataloader_val):
     for sigma in sigmas:
         train_vae(dataloader_train,
                   dataloader_val,
@@ -156,26 +199,41 @@ def train_sigma_models():
 
 # finetune_sigma_models()
 
-def log_p_z(z):
+def log_p_z(xz):
+    total_log_prob = 0
     mvsn = torch.distributions.normal.Normal(0, 1)
-    return torch.sum(mvsn.log_prob(z))
+
+    for stem_idx in range(k):
+        z = extract_z(xz, stem_idx)
+
+        assert len(z) == z_dim
+
+        total_log_prob += torch.sum(mvsn.log_prob(z))
 
 
-def log_p_x_given_z(vae, x, z, sigma):
-    x_recon = vae.decode(z).squeeze()
-    x_flat = x.view(-1).to(device)
-    x_recon_flat = x_recon.view(-1).to(device)
-    mvn = torch.distributions.normal.Normal(x_recon_flat, sigma.to(device)**2)
-    return torch.sum(mvn.log_prob(x_flat))
+    return total_log_prob
 
 
-for source_idx in range(k):
-    xs[source_idx].retain_grad = True
+def log_p_x_given_z(vaes, xz, sigma):
+    total_log_prob = 0
+
+    for stem_idx in range(k):
+
+        x = extract_x(xz, stem_idx)
+        z = extract_z(xz, stem_idx)
+
+        x_recon = vaes[stem_idx].decode(z.unsqueeze(dim=0))
+        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma.to(device)**2)
+
+        total_log_prob += torch.sum(mvn.log_prob(x))
+
+    return total_log_prob
+
 
 for i in range(L):
     eta_i = delta * sigmas[i]**2 / sigmas[L-1]**2
 
-    name = f'sigma_{np.round(sigmas[i].detach().item(), 3)}'
+    # name = f'sigma_{np.round(sigmas[i].detach().item(), 3)}'
     # vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
     #           channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
     #     device)
@@ -183,36 +241,22 @@ for i in range(L):
 
     for t in range(T):
 
-        # new_xs = []
+        epsilon_t = torch.randn(xz.shape, requires_grad=True).to(device)
 
-        for source_idx in range(k):
-            epsilon_t = torch.randn(xs[source_idx].shape, requires_grad=True).to(device)
+        if xz.grad is not None:
+            xz.grad.zero_()
 
-            if xs[source_idx].grad is not None:
-                xs[source_idx].grad.zero_()
+        # elbo = vae.log_prob(xs[source_idx].unsqueeze(dim=0)).to(device)
+        # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
+        log_p_x_z = log_p_z(xz) + log_p_x_given_z(vaes, xz, sigmas[i])
 
-            mu, log_var = vae.encode(xs[source_idx].unsqueeze(dim=0))
-            z = vae.reparameterise(mu, log_var).to(device)
+        # TODO: Why allow_unused?
+        grad_log_p_x_z = torch.autograd.grad(log_p_x_z, xz, retain_graph=True, create_graph=True)[0]
 
-            # elbo = vae.log_prob(xs[source_idx].unsqueeze(dim=0)).to(device)
-            # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
-            log_p_x_z = log_p_z(z) + log_p_x_given_z(vae, xs[source_idx], z, sigmas[i])
-            grad_log_p_x_z = torch.autograd.grad(log_p_x_z, [xs[source_idx], z], retain_graph=True, create_graph=True)
-
-            # TODO: TEST
-            grad_log_p_x_z = grad_log_p_x_z[0].to(device) + torch.mean(grad_log_p_x_z[1].squeeze()).to(device)
-            # grad_log_p_x = gradient_log_px(xs, vae)
-
-            u = xs[source_idx] + eta_i * grad_log_p_x_z + torch.sqrt(2 * eta_i) * epsilon_t
-            temp = (eta_i / sigmas[i] ** 2) * (m - g(xs)).float() * (torch.eye(m.squeeze().shape[0]) * alpha).to(device)
-            xs[source_idx] = u - temp# minmax_rows(u - temp)
-
-            # new_xs.append(minmax_rows(u - temp))
-
-        # xs = new_xs
-    #
-        # gradient = torch.autograd.grad(elbo + (1 / (2*sigmas[i]**2)) * torch.sum(m - g(xs))**2, xs, retain_graph=True)
-        # xs = xs + eta_i * gradient[0] + torch.sqrt(2 * eta_i) * epsilon_t
+        u = xz + eta_i * grad_log_p_x_z + torch.sqrt(2 * eta_i) * epsilon_t
+        constraint_term = (eta_i / sigmas[i] ** 2) * (m_xz - g_xz(xz)).float() * alpha
+        elongated_constraint_term = [constraint_term for _ in range(k)]
+        xz = u - torch.cat(elongated_constraint_term)# minmax_rows(u - temp)
 
     # plt.imshow(xs[0].squeeze().detach(), cmap='gray')
     # plt.show()
@@ -220,7 +264,7 @@ for i in range(L):
     # plt.show()
 
     # x_chain.append((xs-1)*-1)
-    x_chain.append(xs)
+    xz_chain.append(xz)
     # x_chain.append((minmax_rows(xs)-1)*-1)
 
     # for j in range(k):
@@ -228,12 +272,15 @@ for i in range(L):
 
     print(f'Appended {i+1}/{L}')
 
-final_xs = x_chain[-1]
+final_xz = xz_chain[-1]
+final_xs = []
 
 for i in range(k):
     # plt.imshow(final_xs[i].squeeze().detach(), cmap='gray')
     # plt.show()
-    save_image(final_xs[i], f'images/000_recon_stem_{i+1}_new.png')
+    x = extract_x(final_xz, i).view(image_h, image_w)
+    final_xs.append(x)
+    save_image(x, f'images/000_recon_stem_{i+1}_new.png')
 
 m_recon = g(final_xs)
 save_image(m_recon, 'images/000_m_recon_new.png')

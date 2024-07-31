@@ -75,17 +75,21 @@ class SDRLoss(torch.nn.Module):
 
 
 class PriorDataset(Dataset):
-    def __init__(self, split, debug=False, image_h=1024, image_w=384, name='musdb_18_prior', num_stems=4, sigma=None):
+    def __init__(self, split, debug=False, image_h=1024, image_w=384, name='musdb_18_prior', num_stems=4, sigma=None, stem_type=None):
         self.data_point_names = []
         self.master_path = os.path.join('data', name, split)
         self.sigma = sigma
+        self.stem_type = stem_type
+
+        permitted_types = list(range(1, num_stems+1)) if stem_type is None else [stem_type]
 
         for data_folder in os.listdir(self.master_path):
             if random.random() < 0.9 and debug:
                 continue
 
             for stem_idx in range(1, 1+num_stems):
-                self.data_point_names.append(os.path.join(data_folder, f'{"stems/" if name == "toy_dataset" else ""}stem{stem_idx}'))
+                if permitted_types.__contains__(stem_idx):
+                    self.data_point_names.append(os.path.join(data_folder, f'{"stems/" if name == "toy_dataset" else ""}stem{stem_idx}'))
 
         self.transforms = transforms.Compose([
             transforms.ToTensor(),  # Convert numpy array to tensor
@@ -585,8 +589,11 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
     return best_model, best_recon_loss
 
 
-def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn.MSELoss(), lr=1e-05, epochs=10, verbose=False, visualise=False, recon_weight=1, kld_weight=1):
+def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn.MSELoss(), lr=1e-05, epochs=10, verbose=False, visualise=False, recon_weight=1, kld_weight=1, parent_name=None):
 
+    stem_type = dataloader_train.dataset.stem_type
+    name = f'sigma_{parent_name}_{np.round(sigma, 3)}'
+    print(f'Fine-tuning {name}')
     criterion.reduction = 'sum'
 
     vae = og_vae # copy.deepcopy(og_vae)
@@ -642,10 +649,10 @@ def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn
             spectrogram = spectrogram + epsilon
             output, _, _ = vae(spectrogram.to(device).float())
 
-            save_spectrogram_to_file(output.squeeze().detach().cpu().numpy(), f'sigma_{np.round(sigma, 3)}_{epoch}.png')
+            save_spectrogram_to_file(output.squeeze().detach().cpu().numpy(), f'{name}_{epoch}.png')
 
             if epoch == 0:
-                save_spectrogram_to_file(spectrogram.squeeze(), f'sigma_{np.round(sigma, 3)}_gt.png')
+                save_spectrogram_to_file(spectrogram.squeeze(), f'{name}_gt.png')
 
         if verbose:
             print(
@@ -656,8 +663,8 @@ def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn
             best_model = vae
 
             if visualise:
-                torch.save(best_model.state_dict(), f'checkpoints/sigma_{np.round(sigma, 3)}.pth')
-                print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as sigma_{np.round(sigma, 3)} with val loss: {best_val_loss:.4f}")
+                torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
+                print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
 
 
 
