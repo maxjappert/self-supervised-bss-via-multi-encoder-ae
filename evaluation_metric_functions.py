@@ -43,6 +43,10 @@ def compute_spectral_metrics(gt_spectros, approx_spectros, phases):
 
     assert len(gt_spectros) == len(approx_spectros) == len(phases)
 
+    gt_spectros = np.array(gt_spectros)
+    approx_spectros = np.array(approx_spectros)
+    phases = np.array(phases)
+
     if type(gt_spectros) is torch.Tensor:
         gt_spectros = gt_spectros.detach().cpu().numpy()
         approx_spectros = approx_spectros.detach().cpu().numpy()

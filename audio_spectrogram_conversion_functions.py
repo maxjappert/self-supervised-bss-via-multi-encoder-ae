@@ -30,7 +30,7 @@ def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from
 
     return S_db_normalized, phase
 
-def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=False, sr=44100):
+def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=False, sr=22050):
     # Load the spectrogram image
     if from_file:
         img = Image.open(f'images/{spectrogram}').convert('L')
