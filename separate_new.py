@@ -144,15 +144,16 @@ for i, stem_type in enumerate(stem_indices):
                     strides=hps['strides']).to(device))
 
     vae_name = f'sigma_{name}_stem{stem_type + 1}_{sigma_end}'
+    # vae_name = f'{name}_stem{stem_type + 1}'
     vaes[i].load_state_dict(torch.load(f'checkpoints/{vae_name}.pth', map_location=device))
 
 xz = []
 
-# TODO: Try to use the highest sigma vae
 for i in range(k):
     noise_image = torch.rand(image_h, image_w).to(device)
     mu, log_var = vaes[i].encode(noise_image.unsqueeze(dim=0).unsqueeze(dim=0))
     z = vaes[i].reparameterise(mu, log_var)
+    # z = torch.randn((1, z_dim)).to(device)
     xz.append(noise_image.view(-1))
     xz.append(z.view(-1))
 
@@ -298,8 +299,8 @@ for i in range(L):
 
         u = xz + eta_i * grad_log_p_x_z + torch.sqrt(2 * eta_i) * epsilon_t
         constraint_term = (eta_i / sigmas[i] ** 2) * (m_xz - g_xz(xz)).float() * alpha
-        elongated_constraint_term = [constraint_term for _ in range(k)]
-        xz = u - torch.cat(elongated_constraint_term)  # minmax_rows(u - temp)
+        elongated_constraint_term = torch.cat([constraint_term for _ in range(k)])
+        xz = u - elongated_constraint_term  # minmax_rows(u - temp)
 
     # plt.imshow(xs[0].squeeze().detach(), cmap='gray')
     # plt.show()
