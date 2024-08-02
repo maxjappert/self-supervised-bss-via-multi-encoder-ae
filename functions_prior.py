@@ -446,7 +446,7 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
         json.dump(variables, file)
 
 
-def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.L1Loss(), name=None, contrastive_weight=0.01, contrastive_loss=False, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=1, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None, batch_norm=False, sigma=None):
+def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.MSELoss(), name=None, contrastive_weight=0.01, contrastive_loss=False, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=1, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None, batch_norm=False, sigma=None, finetune=False):
     print(f'Training {name}')
 
     criterion.reduction = 'sum'
@@ -457,7 +457,11 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
 
     export_hyperparameters_to_file(name, channels, latent_dim, kernel_sizes, strides, use_blocks, contrastive_weight, contrastive_loss, kld_weight, image_h, image_w, sigma)
 
-    vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_sizes=kernel_sizes, strides=strides, image_h=image_h, image_w=image_w, batch_norm=batch_norm).to(device)
+    vae = VAE(use_blocks=use_blocks, latent_dim=latent_dim, channels=channels, kernel_sizes=kernel_sizes,
+                  strides=strides, image_h=image_h, image_w=image_w, batch_norm=batch_norm).to(device)
+
+    if finetune:
+        vae.load_state_dict(torch.load(f'checkpoints/{name}.pth'))
 
     optimiser = torch.optim.Adam(vae.parameters(), lr=lr)
 
@@ -592,7 +596,7 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
 def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn.MSELoss(), lr=1e-05, epochs=10, verbose=False, visualise=False, recon_weight=1, kld_weight=1, parent_name=None):
 
     stem_type = dataloader_train.dataset.stem_type
-    name = f'sigma_{parent_name}_{np.round(sigma, 3)}'
+    name = f'sigma_{parent_name}_stem{stem_type}_{np.round(sigma, 3)}'
     print(f'Fine-tuning {name}')
     criterion.reduction = 'sum'
 

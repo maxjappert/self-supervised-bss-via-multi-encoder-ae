@@ -12,7 +12,7 @@ sys.path.append('../')
 from audio_spectrogram_conversion_functions import audio_to_spectrogram, chunk_length
 
 
-def slice_audio_file_to_chunks(file_path, sample_rate=44100):
+def slice_audio_file_to_chunks(file_path, sample_rate=22050):
     # Load audio file
     audio, sr = librosa.load(file_path, sr=sample_rate)
     total_length = chunk_length * sr
@@ -107,6 +107,6 @@ def create_spectrogram_dataset(input_folder, output_folder, split_ratios):
 if __name__ == "__main__":
     input_folder = "musdb18"
     output_folder = "musdb_18_prior"
-    split_ratios = {'train': 0, 'val': 0.9, 'test': 0.1}
+    split_ratios = {'train': 0.7, 'val': 0.2, 'test': 0.1}
 
     create_spectrogram_dataset(input_folder, output_folder, split_ratios)

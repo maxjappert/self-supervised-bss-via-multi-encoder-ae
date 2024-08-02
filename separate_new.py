@@ -12,6 +12,7 @@ from torchvision.utils import save_image
 
 from functions_prior import VAE, PriorDataset, finetune_sigma, train_vae
 
+
 def extract_x(xz, stem_idx):
     start_idx = stem_idx * (x_dim + z_dim)
     end_idx = start_idx + x_dim
@@ -19,7 +20,7 @@ def extract_x(xz, stem_idx):
 
 
 def extract_z(xz, stem_idx):
-    start_idx = (stem_idx+1) * x_dim + stem_idx * z_dim
+    start_idx = (stem_idx + 1) * x_dim + stem_idx * z_dim
     end_idx = start_idx + z_dim
     return xz[start_idx:end_idx]
 
@@ -42,6 +43,7 @@ def minmax_normalise(tensor, min_value=0.0, max_value=1.0):
     norm_tensor = norm_tensor * (max_value - min_value) + min_value
     return norm_tensor
 
+
 def minmax_rows(old_tensor):
     new_tensor = torch.zeros_like(old_tensor)
 
@@ -51,7 +53,9 @@ def minmax_rows(old_tensor):
 
     return new_tensor
 
+
 torch.autograd.set_detect_anomaly(True)
+
 
 def gradient_log_px(x, vae):
     x = x.clone().detach().requires_grad_(True)  # Clone and enable gradient computation with respect to x
@@ -85,7 +89,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # name = 'musdb_small_newelbo'
 name = 'toy'
-hps = json.load(open(f'hyperparameters/{name}.json'))
+hps = json.load(open(f'hyperparameters/{name}_stem1.json'))
 image_h = hps['image_h']
 image_w = hps['image_w']
 
@@ -93,8 +97,11 @@ k = 2
 
 debug = False
 
-train_datasets = [PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug, stem_type=i+1) for i in range(4)]
-val_datasets = [PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug, stem_type=i+1) for i in range(4)]
+train_datasets = [PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug,
+                               stem_type=i + 1) for i in range(4)]
+val_datasets = [
+    PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug, stem_type=i + 1)
+    for i in range(4)]
 
 dataloaders_train = [DataLoader(train_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
 dataloaders_val = [DataLoader(val_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
@@ -105,24 +112,29 @@ alpha = 1
 delta = 2 * 1e-05
 
 original_shape = (image_h, image_w)
-x_dim = image_h*image_w
+x_dim = image_h * image_w
 z_dim = hps['hidden']
 
 # gt_xs = [val_datasets[i][1]['spectrogram'] for i in range(k)]
 # tODO
-gt_xs = [val_datasets[0][1]['spectrogram'], val_datasets[3][1]['spectrogram']]
+stem_indices = [0, 3]
+gt_xs = [val_datasets[stem_index][random.randint(0, 100)]['spectrogram'] for stem_index in stem_indices]
 m = g(gt_xs).to(device)
 
 gt_xz = [torch.cat([gt_xs[i].view(-1), torch.zeros(z_dim)]) for i in range(k)]
 gt_xz = torch.cat(gt_xz)
 m_xz = g_xz(gt_xz).to(device)
 
-hps = json.load(open(f'hyperparameters/{name}.json'))
-
 vaes = []
 
-# todo
-for i, stem_type in enumerate([0, 3]):
+sigma_start = 0.1
+sigma_end = 0.5
+sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
+                        end=torch.log10(torch.tensor(sigma_end)),
+                        steps=L, base=10).flip(dims=[0])
+sigmas.requires_grad_(True)
+
+for i, stem_type in enumerate(stem_indices):
     vaes.append(VAE(latent_dim=hps['hidden'],
                     image_h=image_h,
                     image_w=image_w,
@@ -131,11 +143,12 @@ for i, stem_type in enumerate([0, 3]):
                     kernel_sizes=hps['kernel_sizes'],
                     strides=hps['strides']).to(device))
 
-    vae_name = f'{name}_stem{stem_type+1}'
+    vae_name = f'sigma_{name}_stem{stem_type + 1}_{sigma_end}'
     vaes[i].load_state_dict(torch.load(f'checkpoints/{vae_name}.pth', map_location=device))
 
 xz = []
 
+# TODO: Try to use the highest sigma vae
 for i in range(k):
     noise_image = torch.rand(image_h, image_w).to(device)
     mu, log_var = vaes[i].encode(noise_image.unsqueeze(dim=0).unsqueeze(dim=0))
@@ -151,16 +164,10 @@ assert len(xz) == k * (x_dim + z_dim)
 for i, x in enumerate(gt_xs):
     save_image(x, f'images/000_gt_stem_{i}_new.png')
 
-sigma_start = 0.1
-sigma_end = 0.5
-sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
-                        end=torch.log10(torch.tensor(sigma_end)),
-                        steps=L, base=10).flip(dims=[0])
-sigmas.requires_grad_(True)
-
 save_image(m, 'images/000_m.png')
 
 xz_chain = []
+
 
 def finetune_sigma_models(vae, dataloader_train, dataloader_val):
     for sigma in sigmas:
@@ -171,8 +178,10 @@ def finetune_sigma_models(vae, dataloader_train, dataloader_val):
                        verbose=True,
                        visualise=True,
                        lr=0.001,
-                       epochs=20
+                       epochs=30,
+                       parent_name=name
                        )
+
 
 def train_sigma_models(dataloader_train, dataloader_val):
     for sigma in sigmas:
@@ -197,7 +206,41 @@ def train_sigma_models(dataloader_train, dataloader_val):
                   image_w=image_w
                   )
 
-# finetune_sigma_models()
+
+if len(sys.argv) > 1:
+    train = sys.argv[1] == 'train'
+else:
+    train = False
+
+
+if train:
+    vae = VAE(latent_dim=hps['hidden'],
+              image_h=image_h,
+              image_w=image_w,
+              use_blocks=hps['use_blocks'],
+              channels=hps['channels'],
+              kernel_sizes=hps['kernel_sizes'],
+              strides=hps['strides']).to(device)
+
+    stem_type = int(sys.argv[2])
+
+    assert stem_type in range(1, 5)
+
+    train_dataset = PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4,
+                                 debug=debug,
+                                 stem_type=stem_type)
+
+    val_dataset = PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug,
+                               stem_type=stem_type)
+
+    dataloader_train = DataLoader(train_dataset, batch_size=256, shuffle=True, num_workers=4)
+    dataloader_val = DataLoader(val_dataset, batch_size=256, shuffle=True, num_workers=4)
+
+    vae_name = f'{name}_stem{stem_type}'
+    vae.load_state_dict(torch.load(f'checkpoints/{vae_name}.pth', map_location=device))
+
+    finetune_sigma_models(vae, dataloader_train, dataloader_val)
+
 
 def log_p_z(xz):
     total_log_prob = 0
@@ -210,7 +253,6 @@ def log_p_z(xz):
 
         total_log_prob += torch.sum(mvsn.log_prob(z))
 
-
     return total_log_prob
 
 
@@ -218,12 +260,11 @@ def log_p_x_given_z(vaes, xz, sigma):
     total_log_prob = 0
 
     for stem_idx in range(k):
-
         x = extract_x(xz, stem_idx)
         z = extract_z(xz, stem_idx)
 
         x_recon = vaes[stem_idx].decode(z.unsqueeze(dim=0))
-        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma.to(device)**2)
+        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma.to(device) ** 2)
 
         total_log_prob += torch.sum(mvn.log_prob(x))
 
@@ -231,13 +272,16 @@ def log_p_x_given_z(vaes, xz, sigma):
 
 
 for i in range(L):
-    eta_i = delta * sigmas[i]**2 / sigmas[L-1]**2
+    eta_i = delta * sigmas[i] ** 2 / sigmas[L - 1] ** 2
+    sigma_vaes = []
 
-    # name = f'sigma_{np.round(sigmas[i].detach().item(), 3)}'
-    # vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
-    #           channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
-    #     device)
-    # vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
+    for stem_index in stem_indices:
+        sigma_model_name = f'sigma_{name}_stem{stem_index + 1}_{np.round(sigmas[i].detach().item(), 3)}'
+        vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
+                  channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
+            device)
+        vae.load_state_dict(torch.load(f'checkpoints/{sigma_model_name}.pth', map_location=device))
+        sigma_vaes.append(vae)
 
     for t in range(T):
 
@@ -248,15 +292,14 @@ for i in range(L):
 
         # elbo = vae.log_prob(xs[source_idx].unsqueeze(dim=0)).to(device)
         # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
-        log_p_x_z = log_p_z(xz) + log_p_x_given_z(vaes, xz, sigmas[i])
+        log_p_x_z = log_p_z(xz) + log_p_x_given_z(sigma_vaes, xz, sigmas[i])
 
-        # TODO: Why allow_unused?
         grad_log_p_x_z = torch.autograd.grad(log_p_x_z, xz, retain_graph=True, create_graph=True)[0]
 
         u = xz + eta_i * grad_log_p_x_z + torch.sqrt(2 * eta_i) * epsilon_t
         constraint_term = (eta_i / sigmas[i] ** 2) * (m_xz - g_xz(xz)).float() * alpha
         elongated_constraint_term = [constraint_term for _ in range(k)]
-        xz = u - torch.cat(elongated_constraint_term)# minmax_rows(u - temp)
+        xz = u - torch.cat(elongated_constraint_term)  # minmax_rows(u - temp)
 
     # plt.imshow(xs[0].squeeze().detach(), cmap='gray')
     # plt.show()
@@ -270,7 +313,7 @@ for i in range(L):
     # for j in range(k):
     #     save_image(x_chain[-1][j].view(image_h, image_w), f'images/000_recon_stem_{j + 1}.png')
 
-    print(f'Appended {i+1}/{L}')
+    print(f'Appended {i + 1}/{L}')
 
 final_xz = xz_chain[-1]
 final_xs = []
@@ -280,8 +323,7 @@ for i in range(k):
     # plt.show()
     x = extract_x(final_xz, i).view(image_h, image_w)
     final_xs.append(x)
-    save_image(x, f'images/000_recon_stem_{i+1}_new.png')
+    save_image(x, f'images/000_recon_stem_{i + 1}_new.png')
 
 m_recon = g(final_xs)
 save_image(m_recon, 'images/000_m_recon_new.png')
-

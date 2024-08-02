@@ -14,7 +14,7 @@ sys.path.append('../')
 from audio_spectrogram_conversion_functions import audio_to_spectrogram, chunk_length
 
 
-def slice_audio_file_to_chunks(file_path, sample_rate=44100):
+def slice_audio_file_to_chunks(file_path, sample_rate=22050):
     # Load audio file
     audio, sr = librosa.load(file_path, sr=sample_rate)
     total_length = chunk_length * sr
