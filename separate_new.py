@@ -120,6 +120,9 @@ def finetune_sigma_models(vae, dataloader_train, dataloader_val, sigmas):
                        )
 
 
+
+
+
 def train_sigma_models(dataloader_train, dataloader_val):
     for sigma in sigmas:
         train_vae(dataloader_train,
@@ -186,6 +189,28 @@ if train:
     finetune_sigma_models(vae, dataloader_train, dataloader_val, sigmas)
 
 
+def get_vaes(name, stem_indices, sigma=None):
+    vaes = []
+
+    for stem_index in stem_indices:
+        vae = VAE(latent_dim=hps['hidden'],
+                          image_h=image_h,
+                          image_w=image_w,
+                          use_blocks=hps['use_blocks'],
+                          channels=hps['channels'],
+                          kernel_sizes=hps['kernel_sizes'],
+                          strides=hps['strides']).to(device)
+
+        vae_name = f'{name}_stem{stem_index + 1}' if sigma is None else f'sigma_{name}_stem{stem_index + 1}_{sigma}'
+
+        # vae_name = f'{name}_stem{stem_type + 1}'
+        vae.load_state_dict(torch.load(f'checkpoints/{vae_name}.pth', map_location=device))
+
+        vaes.append(vae)
+
+    return vaes
+
+
 def log_p_z(xz, x_dim, z_dim):
     total_log_prob = 0
     mvsn = torch.distributions.normal.Normal(0, 1)
@@ -238,36 +263,8 @@ def separate(gt_m,
 
     gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim)]).to(device)
 
-
-    vaes_noisy = []
-    vaes_perfect = []
-
-    for stem_type in stem_indices:
-        vae_noisy = VAE(latent_dim=hps['hidden'],
-                        image_h=image_h,
-                        image_w=image_w,
-                        use_blocks=hps['use_blocks'],
-                        channels=hps['channels'],
-                        kernel_sizes=hps['kernel_sizes'],
-                        strides=hps['strides']).to(device)
-
-        vae_perfect = VAE(latent_dim=hps['hidden'],
-                        image_h=image_h,
-                        image_w=image_w,
-                        use_blocks=hps['use_blocks'],
-                        channels=hps['channels'],
-                        kernel_sizes=hps['kernel_sizes'],
-                        strides=hps['strides']).to(device)
-
-        vae_name_perfect = f'{name}_stem{stem_type+1}'
-        vae_name_noisy = f'sigma_{name}_stem{stem_type + 1}_{sigma_end}' if finetuned else vae_name_perfect
-
-        # vae_name = f'{name}_stem{stem_type + 1}'
-        vae_noisy.load_state_dict(torch.load(f'checkpoints/{vae_name_noisy}.pth', map_location=device))
-        vae_perfect.load_state_dict(torch.load(f'checkpoints/{vae_name_perfect}.pth', map_location=device))
-
-        vaes_noisy.append(vae_noisy)
-        vaes_perfect.append(vae_perfect)
+    vaes_noisy = get_vaes(name, stem_indices, sigma=sigma_end if finetuned else None)
+    vaes_perfect = get_vaes(name, stem_indices)
 
     sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                             end=torch.log10(torch.tensor(sigma_end)),
