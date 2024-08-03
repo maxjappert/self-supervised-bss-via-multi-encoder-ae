@@ -46,7 +46,7 @@ for _ in range(1):
     gt_m = torch.sum(torch.cat(gt_xs), dim=0)
 
     # TODO: Allow for batch processing
-    separated = separate(gt_m, name='toy')
+    separated = separate(gt_m, hps['hidden'], name=name)
 
     separated_1 = separated[0].detach().cpu().reshape((64, 64))
     separated_2 = separated[1].detach().cpu().reshape((64, 64))

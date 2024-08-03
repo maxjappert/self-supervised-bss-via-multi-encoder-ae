@@ -9,6 +9,7 @@ from torch import optim
 from torch.nn import MSELoss
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
+import os
 
 from functions_prior import VAE, PriorDataset, finetune_sigma, train_vae
 
@@ -190,6 +191,7 @@ if train:
 
 
 def get_vaes(name, stem_indices, sigma=None):
+    hps = json.load(open(os.path.join('hyperparameters', f'{name}_stem1.json')))
     vaes = []
 
     for stem_index in stem_indices:
@@ -241,13 +243,13 @@ def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim):
 
 
 def separate(gt_m,
+             z_dim,
              L=10,
              T=100,
              alpha=1,
              delta=2*1e-05,
              image_h=image_h,
              image_w=image_w,
-             z_dim=hps['hidden'],
              sigma_start=0.1,
              sigma_end=0.5,
              stem_indices=[0, 3],
@@ -298,13 +300,16 @@ def separate(gt_m,
         eta_i = delta * sigmas[i] ** 2 / sigmas[L - 1] ** 2
         sigma_vaes = []
 
-        for stem_index in stem_indices:
-            sigma_model_name = f'sigma_{name}_stem{stem_index + 1}_{np.round(sigmas[i].detach().item(), 3)}'
-            vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
-                      channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
-                device)
-            vae.load_state_dict(torch.load(f'checkpoints/{sigma_model_name}.pth', map_location=device))
-            sigma_vaes.append(vae)
+        if finetuned:
+            for stem_index in stem_indices:
+                    sigma_model_name = f'sigma_{name}_stem{stem_index + 1}_{np.round(sigmas[i].detach().item(), 3)}'
+                    vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
+                              channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
+                        device)
+                    vae.load_state_dict(torch.load(f'checkpoints/{sigma_model_name}.pth', map_location=device))
+                    sigma_vaes.append(vae)
+        else:
+            sigma_vaes = vaes_perfect
 
         for t in range(T):
 
