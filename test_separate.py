@@ -1,6 +1,7 @@
 import json
 import random
 
+import mir_eval
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -35,37 +36,73 @@ dataloaders_val = [DataLoader(val_datasets[i], batch_size=256, shuffle=True, num
 total_basis_sdr_1 = 0
 total_basis_sdr_2 = 0
 
+total_basis_sdr_mireval_1 = 0
+total_basis_sdr_mireval_2 = 0
+
 total_sample_sdr_1 = 0
 total_sample_sdr_2 = 0
 stem_indices = [0, 3]
 
-for _ in range(1):
-    gt_data = [val_datasets[stem_index][random.randint(0, 100)] for stem_index in stem_indices]
-    gt_xs = [data['spectrogram'] for data in gt_data]
+num_samples = 5
 
-    gt_m = torch.sum(torch.cat(gt_xs), dim=0)
+for constraint_term_weight in np.linspace(-2, -6, num=20):
+    total_basis_sdr_mireval_1 = 0
+    total_basis_sdr_mireval_2 = 0
+    for i in range(num_samples):
+        gt_data = [val_datasets[stem_index][i+15] for stem_index in stem_indices]
+        gt_xs = [data['spectrogram'] for data in gt_data]
 
-    # TODO: Allow for batch processing
-    separated = separate(gt_m, hps['hidden'], name=name)
+        gt_m = torch.sum(torch.cat(gt_xs), dim=0)
 
-    separated_1 = separated[0].detach().cpu().reshape((64, 64))
-    separated_2 = separated[1].detach().cpu().reshape((64, 64))
+        separated = separate(gt_m, hps['hidden'], name=name, finetuned=True, alpha=1, visualise=False, verbose=False, constraint_term_weight=constraint_term_weight)
 
-    total_basis_sdr_1 += compute_spectral_sdr(gt_xs[0].squeeze(), separated_1)
-    total_basis_sdr_2 += compute_spectral_sdr(gt_xs[1].squeeze(), separated_2)
+        separated_1 = separated[0].detach().cpu().reshape((64, 64))
+        separated_2 = separated[1].detach().cpu().reshape((64, 64))
 
-    vaes = get_vaes(name, stem_indices)
-    samples = [vae.decode(torch.randn(1, hps['hidden']).to(device)).squeeze().detach().cpu() for vae in vaes]
+        sdr, isr, sir, sar, perm = mir_eval.separation.bss_eval_images(np.array([x.squeeze().view(-1) for x in gt_xs]), np.array([separated_1.view(-1), separated_2.view(-1)]), compute_permutation=True)
 
-    sample_sdrs = np.zeros((k, k))
+        total_basis_sdr_mireval_1 += sdr[0]
+        total_basis_sdr_mireval_2 += sdr[1]
 
-    total_sample_sdr_1 += compute_spectral_sdr(gt_xs[0].squeeze(), samples[0])
-    total_sample_sdr_2 += compute_spectral_sdr(gt_xs[1].squeeze(), samples[1])
+        # total_basis_sdr_1 += compute_spectral_sdr(gt_xs[0].squeeze(), separated_1)
+        # total_basis_sdr_2 += compute_spectral_sdr(gt_xs[1].squeeze(), separated_2)
+#
+        # vaes = get_vaes(name, stem_indices)
+        # samples = [vae.decode(torch.randn(1, hps['hidden']).to(device)).squeeze().detach().cpu() for vae in vaes]
+#
+        # sample_sdrs = np.zeros((k, k))
+#
+        # total_sample_sdr_1 += compute_spectral_sdr(gt_xs[0].squeeze(), samples[0])
+        # total_sample_sdr_2 += compute_spectral_sdr(gt_xs[1].squeeze(), samples[1])
 
-print(total_basis_sdr_1/20)
-print(total_basis_sdr_2/20)
-print(total_sample_sdr_1/20)
-print(total_sample_sdr_2/20)
+    # plt.imshow(gt_m)
+    # plt.show()
+    # plt.imshow(separated_1 + separated_2)
+    # plt.show()
+#
+    # plt.imshow(separated_1)
+    # plt.show()
+    # plt.imshow(separated_2)
+    # plt.show()
+#
+    # plt.imshow(gt_xs[0].squeeze())
+    # plt.show()
+    # plt.imshow(gt_xs[1].squeeze())
+    # plt.show()
+    
+    # plt.imshow(samples[0].squeeze())
+    # plt.show()
+    # plt.imshow(samples[1].squeeze())
+    # plt.show()
+
+    # print(total_basis_sdr_1/num_samples)
+    # print(total_basis_sdr_2/num_samples)
+    print(f'Weight: {constraint_term_weight}')
+    print(total_basis_sdr_mireval_1/num_samples)
+    print(total_basis_sdr_mireval_2/num_samples)
+    print()
+    # print(total_sample_sdr_1/num_samples)
+    # print(total_sample_sdr_2/num_samples)
 
 
 # save_image(gt_xs[0], f'images/0_gt0.png')

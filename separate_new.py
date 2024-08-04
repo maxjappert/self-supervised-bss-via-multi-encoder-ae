@@ -13,6 +13,24 @@ import os
 
 from functions_prior import VAE, PriorDataset, finetune_sigma, train_vae
 
+# Define the seed
+seed = 42
+
+# Set the seed for Python's built-in random module
+random.seed(seed)
+
+# Set the seed for NumPy
+np.random.seed(seed)
+
+# Set the seed for PyTorch
+torch.manual_seed(seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+
+# For CuDNN backend (optional, but recommended for reproducibility)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 def extract_x(xz, stem_idx, x_dim, z_dim):
     start_idx = stem_idx * (x_dim + z_dim)
@@ -256,7 +274,8 @@ def separate(gt_m,
              finetuned=True,
              name=None,
              visualise=False,
-             k=k):
+             k=k, constraint_term_weight=1,
+             verbose=True):
 
     x_dim = image_h * image_w
 
@@ -326,7 +345,7 @@ def separate(gt_m,
 
             u = xz + eta_i * grad_log_p_x_z + torch.sqrt(2 * eta_i) * epsilon_t
             constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim)).float() * alpha
-            elongated_constraint_term = torch.cat([constraint_term for _ in range(k)])
+            elongated_constraint_term = torch.cat([constraint_term for _ in range(k)]) * constraint_term_weight
             xz = u - elongated_constraint_term  # minmax_rows(u - temp)
 
         xz_chain.append(xz)
@@ -335,7 +354,8 @@ def separate(gt_m,
             x = extract_x(xz_chain[-1], vis_idx, x_dim=x_dim, z_dim=z_dim).view(image_h, image_w)
             save_image(x, f'images/0_recon_stem_{vis_idx + 1}_gen{i}.png')
 
-        print(f'Appended {i + 1}/{L}')
+        if verbose:
+            print(f'Appended {i + 1}/{L}')
 
     final_xz = xz_chain[-1]
     final_xs = []
@@ -352,4 +372,6 @@ def separate(gt_m,
 
     final_samples = [vaes_perfect[stem_idx].decode(extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim).unsqueeze(dim=0)) for stem_idx in range(k)]
     final_xs = [extract_x(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
+    final_zs = [extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
+    # print(final_zs)
     return final_xs
