@@ -102,12 +102,12 @@ class ConvolutionalDecoder(nn.Module):
         return y
             
 
-class ConvolutionalAutoencoder(nn.Module):
+class ConvolutionalAutoencoderOG(nn.Module):
     def __init__(self, input_channels=3, image_hw=64, 
                  channels=[32, 64, 128], hidden=512, 
                  num_encoders=4, norm_type='none',
                  use_weight_norm=True):
-        super(ConvolutionalAutoencoder, self).__init__()
+        super(ConvolutionalAutoencoderOG, self).__init__()
         self.image_hw = image_hw
         self.input_channels = input_channels
         self.channels = channels

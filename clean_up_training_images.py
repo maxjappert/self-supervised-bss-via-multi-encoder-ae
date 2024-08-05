@@ -1,7 +1,7 @@
 import os
 import sys
 
-basename = 'toy_1d_stem4' # sys.argv[1]
+basename = 'sigma_toy_stem3' # sys.argv[1]
 
 index_range = []
 

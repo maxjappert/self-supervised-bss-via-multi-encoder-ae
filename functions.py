@@ -1,12 +1,15 @@
+import itertools
 import json
 import math
 import os
 import pickle
 import random
 import sys
+import time
 import traceback
 
 import librosa
+import mir_eval.separation
 from PIL import Image
 from datetime import datetime
 
@@ -15,8 +18,11 @@ import torch
 from matplotlib import pyplot as plt
 from torch import optim, nn
 from torch.optim.lr_scheduler import StepLR
+from torchvision import transforms
+from torchvision.utils import save_image
 
 from evaluation_metric_functions import compute_spectral_sdr, compute_spectral_metrics, visualise_predictions
+from models.cnn_multi_enc_ae_2d import ConvolutionalAutoencoderOG
 from models.cnn_multi_enc_ae_2d_spectrograms import ConvolutionalAutoencoder
 from torch.utils.data import Dataset, DataLoader
 
@@ -80,13 +86,14 @@ class TwoSourcesDataset(Dataset):
     """
     For any dataset where the mixes have two sources in the format of the Slakh dataset.
     """
-    def __init__(self, split: str, name='slakh_two_sources_preprocessed', normalisation='minmax', debug=False):
+    def __init__(self, split: str, name='toy_dataset', normalisation='minmax', debug=False, image_h=64, image_w=64, stem_indices=[0, 3]):
         """
         Initialise the two source dataset.
         :param split: "train"/"validation"/"test"
         :param name: Name of the dataset folder name within the data folder.
         """
         self.data_folder_names = []
+        self.stem_indices = stem_indices
 
         self.name = name
         self.split = split
@@ -97,7 +104,16 @@ class TwoSourcesDataset(Dataset):
             if random.random() < 0.99 and debug:
                 continue
 
-            self.data_folder_names.append(data_folder)
+            self.data_folder_names.append(os.path.join(data_folder, 'stems'))
+
+        self.index_combos = list(itertools.product(range(len(self.data_folder_names)), repeat=2))
+
+        assert len(self.index_combos) == len(self.data_folder_names)**2
+
+        self.transforms = transforms.Compose([
+            transforms.ToTensor(),  # Convert numpy array to tensor
+            transforms.Resize((image_h, image_w)),
+        ])
 
         self.normalisation = normalisation
 
@@ -107,7 +123,7 @@ class TwoSourcesDataset(Dataset):
                 np.load(os.path.join('data', self.name, self.split, self.data_folder_names[idx], 'stems', 'S1_phase.npy')))
 
     def __len__(self):
-        return len(self.data_folder_names)
+        return len(self.index_combos)
 
     def row_min_max(self, row):
         """
@@ -120,7 +136,8 @@ class TwoSourcesDataset(Dataset):
 
         for i, x in enumerate(row):
             S_db_normalized = (x - np.min(x)) / ((np.max(x) - np.min(x)) + 1e-7)
-            normalised_row.append(torch.tensor(S_db_normalized).unsqueeze(0))
+            S_db_normalized = self.transforms(S_db_normalized)
+            normalised_row.append(S_db_normalized.float())
 
         return normalised_row
 
@@ -137,21 +154,35 @@ class TwoSourcesDataset(Dataset):
             mean = np.mean(x)
             std = np.std(x) + 1e-7
             S_db_normalized = (x - mean) / std
-            normalized_row.append(torch.tensor(S_db_normalized).unsqueeze(0))
+            S_db_normalized = self.transforms(S_db_normalized)
+            normalized_row.append(S_db_normalized.float())
 
         return normalized_row
 
     def __getitem__(self, idx):
 
-        chunks_master = np.array(Image.open((os.path.join(self.master_path, self.data_folder_names[idx], 'mix.png'))).convert('L'), dtype=np.float32)
-        row = [chunks_master]
+        folder_indices = self.index_combos[idx]
 
-        for stem in os.listdir(os.path.join(self.master_path, self.data_folder_names[idx], 'stems')):
-            if not stem.endswith('.npy'):
-                stem_path = os.path.join(self.master_path, self.data_folder_names[idx], 'stems', stem)
-                row.append(np.array(Image.open(stem_path).convert('L'), dtype=np.float32))
+        filenames = [os.path.join(self.master_path, self.data_folder_names[folder_indices[i]],
+                                                         f'stem{self.stem_indices[i]+1}.png') for i in range(len(folder_indices))]
 
-        return self.row_z_score(row) if self.normalisation == 'z-score' else self.row_min_max(row)
+        stem_spectrograms = [np.array(Image.open(filename)).mean(axis=-1) for filename in filenames]
+
+
+        spectrograms = [np.sum(stem_spectrograms, axis=0)] + stem_spectrograms
+        spectrograms = self.row_z_score(spectrograms) if self.normalisation == 'z-score' else self.row_min_max(spectrograms)
+
+        return spectrograms
+
+        # chunks_master = np.array(Image.open((os.path.join(self.master_path, self.data_folder_names[idx], 'mix.png'))).convert('L'), dtype=np.float32)
+        # row = [chunks_master]
+#
+        # for stem in os.listdir(os.path.join(self.master_path, self.data_folder_names[idx], 'stems')):
+        #     if not stem.endswith('.npy'):
+        #         stem_path = os.path.join(self.master_path, self.data_folder_names[idx], 'stems', stem)
+        #         row.append(np.array(Image.open(stem_path).convert('L'), dtype=np.float32))
+#
+        # return self.row_z_score(row) if self.normalisation == 'z-score' else self.row_min_max(row)
 
 
 def save_spectrogram_to_file(spectrogram, filename):
@@ -183,7 +214,24 @@ def model_factory(input_channels=1, image_height=64, image_width=64, channels=[2
     sparse mixing loss (non-linear).
     :return: The model with the specified parameters.
     """
-    return LinearConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm, kernel_size=kernel_size) if linear else ConvolutionalAutoencoder(input_channels, image_height, image_width, channels, hidden, num_encoders, norm_type, use_weight_norm, kernel_size=kernel_size)
+    return LinearConvolutionalAutoencoder(input_channels,
+                                       image_height,
+                                       image_width,
+                                       channels,
+                                       hidden,
+                                       num_encoders,
+                                       norm_type,
+                                       use_weight_norm,
+                                       kernel_size=kernel_size) \
+        if linear else ConvolutionalAutoencoder(input_channels,
+                                                image_height,
+                                                image_width,
+                                                channels,
+                                                hidden,
+                                                num_encoders,
+                                                norm_type,
+                                                use_weight_norm,
+                                                kernel_size=kernel_size)
 
 
 def get_total_loss(x, x_pred, z, model, recon_loss, sep_loss, z_decay, zero_lr, sep_lr, linear=False):
@@ -257,7 +305,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
                  num_encoders=2, norm_type='group_norm', image_height=64, image_width=64,
                  use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3,
           lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True,
-          visualise=False, linear=False, test_save_step=1, num_workers=12, kernel_size=7):
+          visualise=False, linear=False, test_save_step=1, num_workers=4, kernel_size=7, original_implementation=False):
     """
     Trains a model.
     :param dataset_train: Train dataset.
@@ -290,9 +338,16 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     :return: Trained model, list of training losses per epoch, list of validation losses per epoch.
     """
 
-    model = model_factory(channels=channels, hidden=hidden,
-                              num_encoders=num_encoders, norm_type=norm_type,
-                              use_weight_norm=use_weight_norm, image_height=image_height, image_width=image_width, linear=linear, kernel_size=kernel_size)
+
+    if not original_implementation:
+        print('new implementation')
+        model = model_factory(channels=channels, hidden=hidden,
+                                  num_encoders=num_encoders, norm_type=norm_type,
+                                  use_weight_norm=use_weight_norm, image_height=image_height, image_width=image_width, linear=linear, kernel_size=kernel_size)
+    else:
+        print('original implementation')
+        model = ConvolutionalAutoencoderOG(channels=channels, input_channels=1, hidden=hidden,  num_encoders=num_encoders, norm_type=norm_type, use_weight_norm=use_weight_norm)
+
     model.to(device)
 
     if name:
@@ -346,7 +401,6 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
 
             # Format the timestamp as a string
             timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
-            print(train_loss)
             print(f'[{timestamp_str}]:  Epoch {epoch + 1}/{max_epochs}, Train Loss: {train_loss:.4f}')
 
         # Validation loop
@@ -369,20 +423,13 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
                    name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear)
 
         if sdr > best_sdr and name:
-            torch.save(model.state_dict(), f"checkpoints/{name}_best_sdr.pth")
+            torch.save(model.state_dict(), f"checkpoints/{name}.pth")
             best_sdr = sdr
-
-        if val_loss < best_val_loss and name:
-            torch.save(model.state_dict(), f"checkpoints/{name}_best_val_loss.pth")
-            best_val_loss = val_loss
 
         if verbose:
             print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
             print(f'SDR: {sdr}')
             #print(f'SSIM: {ssim}')
-
-    if name:
-        torch.save(model.state_dict(), f"checkpoints/{name}_final.pth")
 
     return model, train_losses, val_losses
 
@@ -531,8 +578,8 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
             if single_file:
                 visualise_predictions(sample[0].squeeze(), [x_i.squeeze() for x_i in sample[1:]], x_pred, x_i_preds, name=name)
                 print(f'{name}.png saved')
-                print(f'{x_pred.min()}, {x_pred.max()}')
-                print(f'{sample[0].min()}, {sample[0].max()}')
+                # print(f'{x_pred.min()}, {x_pred.max()}')
+                # print(f'{sample[0].min()}, {sample[0].max()}')
             else:
                 save_spectrogram_to_file(x_pred, f'{name}_mix.png')
                 save_spectrogram_to_file(sample[0].squeeze(), f'{name}_mix_gt.png')
@@ -542,9 +589,12 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
 
         #metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
 
-        phases = dataset_val.get_phase(sample_index)
-        separation = compute_spectral_metrics([x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]], x_i_preds, phases=phases[1:])[metric_index_mapping['sdr']]
-        metric_sum += np.mean(separation)
+        time1 = time.time()
+        metrics = mir_eval.separation.bss_eval_images([x_i_gt.view(-1).numpy() for x_i_gt in sample[1:]], [x_i.reshape(-1) for x_i in x_i_preds])
+        time2 = time.time()
+        # print(f'One metric took {time2 - time1} seconds')
+        sdr = metrics[0]
+        metric_sum += np.mean(sdr)
 
     return metric_sum / num_samples
 

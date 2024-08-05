@@ -102,8 +102,6 @@ class ConvolutionalDecoder(nn.Module):
         z = torch.concatenate(z, dim=1)
         y = self.decoder(z)
 
-        print(y.shape)
-
         return transforms.Resize((self.image_h, self.image_w))(y)
             
 

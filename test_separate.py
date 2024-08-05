@@ -14,6 +14,8 @@ from separate_new import separate, get_vaes
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+np.set_printoptions(precision=3, suppress=True)
+
 name = 'toy'
 hps = json.load(open(f'hyperparameters/{name}_stem1.json'))
 image_h = hps['image_h']
@@ -29,40 +31,45 @@ val_datasets = [
     PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug, stem_type=i + 1)
     for i in range(4)]
 
-dataloaders_train = [DataLoader(train_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
-dataloaders_val = [DataLoader(val_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
+dataloaders_train = [DataLoader(train_datasets[i], batch_size=256, shuffle=True, num_workers=4) for i in range(4)]
+dataloaders_val = [DataLoader(val_datasets[i], batch_size=256, shuffle=True, num_workers=4) for i in range(4)]
 
-
-total_basis_sdr_1 = 0
-total_basis_sdr_2 = 0
-
-total_basis_sdr_mireval_1 = 0
-total_basis_sdr_mireval_2 = 0
+# total_basis_sdr_mireval_1 = 0
+# total_basis_sdr_mireval_2 = 0
 
 total_sample_sdr_1 = 0
 total_sample_sdr_2 = 0
 stem_indices = [0, 3]
 
-num_samples = 5
+num_samples = 50
 
-for constraint_term_weight in np.linspace(-2, -6, num=20):
-    total_basis_sdr_mireval_1 = 0
-    total_basis_sdr_mireval_2 = 0
+metrics = {'sdr': 0,
+           'isr': 1,
+           'sir': 2,
+           'sar': 3}
+
+weights = np.linspace(0, -20, num=100)
+basis = np.zeros((len(weights), k, len(metrics.keys()), num_samples))
+
+for weight_index, constraint_term_weight in enumerate(weights):
+    prior_samples = np.zeros((k, len(metrics.keys()), num_samples))
+
     for i in range(num_samples):
         gt_data = [val_datasets[stem_index][i+15] for stem_index in stem_indices]
         gt_xs = [data['spectrogram'] for data in gt_data]
 
         gt_m = torch.sum(torch.cat(gt_xs), dim=0)
 
-        separated = separate(gt_m, hps['hidden'], name=name, finetuned=True, alpha=1, visualise=False, verbose=False, constraint_term_weight=constraint_term_weight)
+        separated = separate(gt_m, hps['hidden'], name=name, finetuned=False, alpha=1, visualise=False, verbose=False, constraint_term_weight=constraint_term_weight)
 
         separated_1 = separated[0].detach().cpu().reshape((64, 64))
         separated_2 = separated[1].detach().cpu().reshape((64, 64))
 
         sdr, isr, sir, sar, perm = mir_eval.separation.bss_eval_images(np.array([x.squeeze().view(-1) for x in gt_xs]), np.array([separated_1.view(-1), separated_2.view(-1)]), compute_permutation=True)
 
-        total_basis_sdr_mireval_1 += sdr[0]
-        total_basis_sdr_mireval_2 += sdr[1]
+        assert basis[weight_index, :, :, i].shape == basis[weight_index, :, :, i].shape
+
+        basis[weight_index, :, :, i] = np.array([sdr, isr, sir, sar]).T
 
         # total_basis_sdr_1 += compute_spectral_sdr(gt_xs[0].squeeze(), separated_1)
         # total_basis_sdr_2 += compute_spectral_sdr(gt_xs[1].squeeze(), separated_2)
@@ -98,11 +105,18 @@ for constraint_term_weight in np.linspace(-2, -6, num=20):
     # print(total_basis_sdr_1/num_samples)
     # print(total_basis_sdr_2/num_samples)
     print(f'Weight: {constraint_term_weight}')
-    print(total_basis_sdr_mireval_1/num_samples)
-    print(total_basis_sdr_mireval_2/num_samples)
+    print(f'{round(np.mean(basis[weight_index, 0, metrics["sdr"], :]), 3)} +- {round(np.std(basis[weight_index, 0, metrics["sdr"], :]), 3)}')
+    print(f'{round(np.mean(basis[weight_index, 1, metrics["sdr"], :]), 3)} +- {round(np.std(basis[weight_index, 1, metrics["sdr"], :]), 3)}')
     print()
+
+
+
     # print(total_sample_sdr_1/num_samples)
     # print(total_sample_sdr_2/num_samples)
+
+
+np.save('results/weights_evaluated.npy', weights)
+np.save('results/basis_contrastive_weight_experiment_results.npy', basis)
 
 
 # save_image(gt_xs[0], f'images/0_gt0.png')
