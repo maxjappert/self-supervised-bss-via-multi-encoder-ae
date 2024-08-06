@@ -86,7 +86,7 @@ class TwoSourcesDataset(Dataset):
     """
     For any dataset where the mixes have two sources in the format of the Slakh dataset.
     """
-    def __init__(self, split: str, name='toy_dataset', normalisation='minmax', debug=False, image_h=64, image_w=64, stem_indices=[0, 3]):
+    def __init__(self, split: str, name='toy_dataset', normalisation='minmax', debug=False, image_h=64, image_w=64, stem_indices=[0, 3], reduction_ratio=0.5):
         """
         Initialise the two source dataset.
         :param split: "train"/"validation"/"test"
@@ -104,11 +104,18 @@ class TwoSourcesDataset(Dataset):
             if random.random() < 0.99 and debug:
                 continue
 
+
+
             self.data_folder_names.append(os.path.join(data_folder, 'stems'))
 
-        self.index_combos = list(itertools.product(range(len(self.data_folder_names)), repeat=2))
+        all_index_combos = list(itertools.product(range(len(self.data_folder_names)), repeat=2))
+        self.index_combos = []
 
-        assert len(self.index_combos) == len(self.data_folder_names)**2
+        for index_combo in all_index_combos:
+            if random.random() < reduction_ratio:
+                self.index_combos.append(index_combo)
+
+        # assert len(self.index_combos) == len(self.data_folder_names)**2
 
         self.transforms = transforms.Compose([
             transforms.ToTensor(),  # Convert numpy array to tensor
@@ -305,7 +312,8 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
                  num_encoders=2, norm_type='group_norm', image_height=64, image_width=64,
                  use_weight_norm=True, dataset_split_ratio=0.8, sep_norm='L1', sep_lr=0.5, zero_lr=0.01, lr=1e-3,
           lr_step_size=50, lr_gamma=0.1, weight_decay=1e-5, z_decay=1e-2, max_epochs=100, name=None, verbose=True,
-          visualise=False, linear=False, test_save_step=1, num_workers=4, kernel_size=7, original_implementation=False):
+          visualise=False, linear=False, test_save_step=1, num_workers=4, kernel_size=7, original_implementation=False,
+          compute_sdr=True):
     """
     Trains a model.
     :param dataset_train: Train dataset.
@@ -420,15 +428,16 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
         val_losses.append(val_loss)
 
         sdr = test(model, dataset_val, visualise=visualise if epoch % test_save_step == 0 else False,
-                   name=f'{str(epoch + 1)}_{name}', num_samples=10, linear=linear)
+                   name=f'{name}_{str(epoch + 1)}', num_samples=10, linear=linear, compute_sdr=compute_sdr)
 
-        if sdr > best_sdr and name:
+        if val_loss < best_val_loss and name:
             torch.save(model.state_dict(), f"checkpoints/{name}.pth")
-            best_sdr = sdr
+            best_val_loss = val_loss
 
         if verbose:
             print(f'Epoch {epoch + 1}/{max_epochs}, Validation Loss: {val_loss:.4f}')
-            print(f'SDR: {sdr}')
+            if compute_sdr:
+                print(f'SDR: {sdr}')
             #print(f'SSIM: {ssim}')
 
     return model, train_losses, val_losses
@@ -548,7 +557,7 @@ metric_index_mapping = {
 
 
 def test(model, dataset_val, visualise=True, name='test', num_samples=100, single_file=True, linear=False,
-         random_visualisation=False):
+         random_visualisation=False, compute_sdr=True):
     metric_sum = 0
 
     model.eval()
@@ -589,14 +598,15 @@ def test(model, dataset_val, visualise=True, name='test', num_samples=100, singl
 
         #metric_sum += evaluate_separation_ability(x_i_preds, [x_i_gt.squeeze().numpy() for x_i_gt in sample[1:]])
 
-        time1 = time.time()
-        metrics = mir_eval.separation.bss_eval_images([x_i_gt.view(-1).numpy() for x_i_gt in sample[1:]], [x_i.reshape(-1) for x_i in x_i_preds])
-        time2 = time.time()
-        # print(f'One metric took {time2 - time1} seconds')
-        sdr = metrics[0]
-        metric_sum += np.mean(sdr)
+        if compute_sdr:
+            time1 = time.time()
+            metrics = mir_eval.separation.bss_eval_images([x_i_gt.view(-1).numpy() for x_i_gt in sample[1:]], [x_i.reshape(-1) for x_i in x_i_preds])
+            time2 = time.time()
+            # print(f'One metric took {time2 - time1} seconds')
+            sdr = metrics[0]
+            metric_sum += np.mean(sdr)
 
-    return metric_sum / num_samples
+    return (metric_sum / num_samples) if compute_sdr else None
 
 
 def create_combined_image(S_mix_gt, S1_approx, S2_approx, S1_gt, S2_gt, output_path):
