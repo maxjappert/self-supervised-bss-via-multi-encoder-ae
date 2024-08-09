@@ -86,7 +86,7 @@ class TwoSourcesDataset(Dataset):
     """
     For any dataset where the mixes have two sources in the format of the Slakh dataset.
     """
-    def __init__(self, split: str, name='toy_dataset', normalisation='minmax', debug=False, image_h=64, image_w=64, stem_indices=[0, 3], reduction_ratio=0.5):
+    def __init__(self, split: str, name='toy_dataset', normalisation='minmax', debug=False, image_h=64, image_w=64, stem_indices=[0, 1, 2, 3], num_sources=2, reduction_ratio=0.5):
         """
         Initialise the two source dataset.
         :param split: "train"/"validation"/"test"
@@ -94,6 +94,7 @@ class TwoSourcesDataset(Dataset):
         """
         self.data_folder_names = []
         self.stem_indices = stem_indices
+        self.num_sources = num_sources
 
         self.name = name
         self.split = split
@@ -106,9 +107,9 @@ class TwoSourcesDataset(Dataset):
 
 
 
-            self.data_folder_names.append(os.path.join(data_folder, 'stems'))
+            self.data_folder_names.append(os.path.join(data_folder, 'stems') if name.__contains__('toy') else data_folder)
 
-        all_index_combos = list(itertools.product(range(len(self.data_folder_names)), repeat=2))
+        all_index_combos = list(itertools.product(range(len(self.data_folder_names)), repeat=num_sources))
         self.index_combos = []
 
         for index_combo in all_index_combos:
@@ -169,9 +170,10 @@ class TwoSourcesDataset(Dataset):
     def __getitem__(self, idx):
 
         folder_indices = self.index_combos[idx]
+        stem_indices = random.choices(self.stem_indices, k=self.num_sources)  # [random.randint(0, 3), random.randint(0, 3)]
 
         filenames = [os.path.join(self.master_path, self.data_folder_names[folder_indices[i]],
-                                                         f'stem{self.stem_indices[i]+1}.png') for i in range(len(folder_indices))]
+                                                         f'stem{stem_indices[i]+1}.png') for i in range(len(folder_indices))]
 
         stem_spectrograms = [np.array(Image.open(filename)).mean(axis=-1) for filename in filenames]
 
@@ -653,3 +655,19 @@ def load_model(name):
 
     return model
 
+def get_model(name, image_h=64, image_w=64, k=2):
+    hps_bss = json.load(open(f'hyperparameters/{name}.json'))
+
+    model_bss = model_factory(linear=hps_bss['linear'],
+                              channels=hps_bss['channels'],
+                              hidden=hps_bss['hidden'],
+                              num_encoders=k,
+                              image_height=image_h,
+                              image_width=image_w,
+                              norm_type=hps_bss['norm_type'],
+                              use_weight_norm=hps_bss['use_weight_norm'],
+                              kernel_size=hps_bss['kernel_size']).to(device)
+
+    model_bss.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
+
+    return model_bss

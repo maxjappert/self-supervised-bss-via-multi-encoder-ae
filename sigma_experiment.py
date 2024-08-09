@@ -40,29 +40,29 @@ dataloaders_val = [DataLoader(val_datasets[i], batch_size=256, shuffle=True, num
 
 total_sample_sdr_1 = 0
 total_sample_sdr_2 = 0
-stem_indices = [0, 3]
 
-num_samples = 10
+num_samples = 50
 
 metrics = {'sdr': 0,
            'isr': 1,
            'sir': 2,
            'sar': 3}
 
-weights = np.linspace(0, -20, num=20)
-basis = np.zeros((len(weights), k, len(metrics.keys()), num_samples))
+sigmas_L = [0.06, 0.07, 0.08, 0.09, 0.1]
+basis = np.zeros((len(sigmas_L), k, len(metrics.keys()), num_samples))
 
-for weight_index, constraint_term_weight in enumerate(weights):
+for weight_index, sigma_L in enumerate(sigmas_L):
     prior_samples = np.zeros((k, len(metrics.keys()), num_samples))
 
     for i in range(num_samples):
-        print(i)
+        stem_indices = [random.randint(0, 3), random.randint(0, 3)]
+        # print(i)
         gt_data = [val_datasets[stem_index][i+15] for stem_index in stem_indices]
         gt_xs = [data['spectrogram'] for data in gt_data]
 
         gt_m = torch.sum(torch.cat(gt_xs), dim=0)
 
-        separated = separate(gt_m, hps['hidden'], name=name, finetuned=True, alpha=1, visualise=False, verbose=False, constraint_term_weight=constraint_term_weight)
+        separated = separate(gt_m, hps['hidden'], name=name, finetuned=False, alpha=1, visualise=False, verbose=False, sigma_start=sigma_L, constraint_term_weight=-15)
 
         separated_1 = separated[0].detach().cpu().reshape((64, 64))
         separated_2 = separated[1].detach().cpu().reshape((64, 64))
@@ -74,13 +74,13 @@ for weight_index, constraint_term_weight in enumerate(weights):
 
         basis[weight_index, :, :, i] = np.array([sdr, isr, sir, sar]).T
 
-    print(f'Weight: {constraint_term_weight}')
+    print(f'sigma_L: {sigma_L}')
     print(f'{round(np.mean(basis[weight_index, 0, metrics["sdr"], :]), 3)} +- {round(np.std(basis[weight_index, 0, metrics["sdr"], :]), 3)}')
     print(f'{round(np.mean(basis[weight_index, 1, metrics["sdr"], :]), 3)} +- {round(np.std(basis[weight_index, 1, metrics["sdr"], :]), 3)}')
     print()
 
-np.save('results/weights_evaluated.npy', weights)
-np.save('results/basis_contrastive_weight_experiment_results_finetuned.npy', basis)
+np.save('results/sigma_Ls_evaluated.npy', sigmas_L)
+np.save('results/basis_sigma_toy_experiment_results.npy', basis)
 
 
 # save_image(gt_xs[0], f'images/0_gt0.png')

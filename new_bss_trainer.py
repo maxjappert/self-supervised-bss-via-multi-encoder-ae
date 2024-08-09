@@ -1,22 +1,30 @@
+import argparse
 import pickle
 import sys
 
 from functions import TwoSourcesDataset, train
 
+parser = argparse.ArgumentParser(
+                    prog='ProgramName',
+                    description='What the program does',
+                    epilog='Text at the bottom of help')
+
+parser.add_argument('--name')      # option that takes a value
+parser.add_argument('--linear',
+                    action='store_true')  # on/off flag
+
+args = parser.parse_args()
+
 debug = False
 
-dataset_train = TwoSourcesDataset(debug=debug, split='train', name='toy_dataset', reduction_ratio=0.001)
-dataset_val = TwoSourcesDataset(debug=debug, split='val', name='toy_dataset', reduction_ratio=0.001)
+dataset_name = 'toy_dataset' if args.name.__contains__('toy') else 'musdb_18_prior'
 
-if len(sys.argv) > 1:
-    original = sys.argv[1] == 'original'
-    linear = sys.argv[1] == 'linear'
+dataset_train = TwoSourcesDataset(debug=debug, split='train', name=dataset_name, reduction_ratio=0.001)
+dataset_val = TwoSourcesDataset(debug=debug, split='val', name=dataset_name, reduction_ratio=0.001)
 
-    name = f'toy_separator' + ('_original' if original else '_linear' if linear else '')
-else:
-    linear = False
-    original = False
-    name = f'debug'
+
+name = args.name + ('_linear' if args.linear else '')
+
 
 print(f'Training {name}')
 
@@ -27,10 +35,11 @@ model, train_losses, val_losses = train(dataset_train,
                                         image_width=64,
                                         visualise=True,
                                         kernel_size=7,
-                                        linear=linear,
+                                        linear=args.linear,
                                         name=name,
-                                        original_implementation=original,
-                                        compute_sdr=False
+                                        original_implementation=False,
+                                        compute_sdr=False,
+                                        hidden=196
                                         )
 
 output = {'train_losses': train_losses,

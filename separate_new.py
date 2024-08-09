@@ -107,7 +107,7 @@ def g_xz(xz, x_dim, z_dim):
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # name = 'musdb_small_newelbo'
-name = 'toy'
+name = 'musdb'
 hps = json.load(open(f'hyperparameters/{name}_stem1.json'))
 image_h = hps['image_h']
 image_w = hps['image_w']
@@ -199,13 +199,15 @@ if train:
     vae.load_state_dict(torch.load(f'checkpoints/{vae_name}.pth', map_location=device))
 
     sigma_start = 0.1
-    sigma_end = 0.5
+    sigma_end = 1.0
     L = 10
     sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                             end=torch.log10(torch.tensor(sigma_end)),
                             steps=L, base=10).flip(dims=[0])
 
     finetune_sigma_models(vae, dataloader_train, dataloader_val, sigmas)
+
+    sys.exit(0)
 
 
 def get_vaes(name, stem_indices, sigma=None):
@@ -269,7 +271,7 @@ def separate(gt_m,
              image_h=image_h,
              image_w=image_w,
              sigma_start=0.1,
-             sigma_end=0.5,
+             sigma_end=1.0,
              stem_indices=[0, 3],
              finetuned=True,
              name=None,
@@ -310,7 +312,7 @@ def separate(gt_m,
 
     # for i, x in enumerate(gt_xs):
     #     save_image(x, f'images/000_gt_stem_{i}_new.png')
-
+#
     # save_image(m, 'images/000_m.png')
 
     xz_chain = []
@@ -350,9 +352,9 @@ def separate(gt_m,
 
         xz_chain.append(xz)
 
-        for vis_idx in range(k):
-            x = extract_x(xz_chain[-1], vis_idx, x_dim=x_dim, z_dim=z_dim).view(image_h, image_w)
-            save_image(x, f'images/0_recon_stem_{vis_idx + 1}_gen{i}.png')
+        # for vis_idx in range(k):
+            # x = extract_x(xz_chain[-1], vis_idx, x_dim=x_dim, z_dim=z_dim).view(image_h, image_w)
+            # save_image(x, f'images/0_recon_stem_{vis_idx + 1}_gen{i}.png')
 
         if verbose:
             print(f'Appended {i + 1}/{L}')

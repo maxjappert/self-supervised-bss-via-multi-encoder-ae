@@ -4,7 +4,7 @@ import numpy as np
 from sympy.physics.control.control_plots import plt
 
 evaluated_weights = np.load('../results/weights_evaluated.npy')
-basis_weights = np.load('../results/basis_contrastive_weight_experiment_results.npy')
+basis_weights = np.load('../results/basis_contrastive_weight_experiment_results_finetuned.npy')
 
 print(evaluated_weights)
 print(basis_weights.shape)
@@ -15,7 +15,7 @@ data_for_plot = []
 positions = []
 labels = []
 
-jump_distance = 5
+jump_distance = 1
 
 metrics = {'sdr': 0,
            'isr': 1,
@@ -31,7 +31,7 @@ for metric in metrics.keys():
     ax1.set_title(f'Influence of BASIS Reconstruction Constraint Weight on {metric.upper()}', fontsize=16)
 
     res1 = ax1.boxplot(
-        basis_weights[0:100:jump_distance, 0, metrics[metric], :].T, positions=np.arange(len(evaluated_weights)//jump_distance)-0.2, widths=0.2,
+        basis_weights[0:20, 0, metrics[metric], :].T, positions=np.arange(len(evaluated_weights)//jump_distance)-0.2, widths=0.2,
         patch_artist=True, label='Source 1'
     )
     for element in ['boxes', 'whiskers', 'fliers', 'means', 'medians', 'caps']:
@@ -44,7 +44,7 @@ for metric in metrics.keys():
     # ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
     # ax2.set_ylabel('SDR', color='tab:orange')
     res2 = ax1.boxplot(
-        basis_weights[0:100:jump_distance, 1, metrics[metric], :].T, positions=np.arange(len(evaluated_weights)//jump_distance)+0.2, widths=0.2,
+        basis_weights[0:20, 1, metrics[metric], :].T, positions=np.arange(len(evaluated_weights)//jump_distance)+0.2, widths=0.2,
         patch_artist=True, label='Source 2'
     )
     ##from https://stackoverflow.com/a/41997865/2454357
@@ -61,5 +61,5 @@ for metric in metrics.keys():
     ax1.legend()
 
     fig.tight_layout()  # otherwise the right y-label is slightly clipped
-    plt.savefig(f'weight_experiment_{metric}.png', dpi=300)
+    plt.savefig(f'weight_experiment_{metric}_finetuned.png', dpi=300)
 
