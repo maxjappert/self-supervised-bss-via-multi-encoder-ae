@@ -11,12 +11,12 @@ import seaborn as sn
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-model_name = 'toy'
+model_name = 'musdb'
 dataset_name = 'toy_dataset' if model_name.__contains__('toy') else 'musdb_18_prior'
 image_h = 64
 image_w = 64
 
-num_samples = 512
+num_samples = 256
 
 test_datasets = [PriorDataset('test', image_h=image_h, image_w=image_w, name=dataset_name, num_stems=4, debug=False,
                                stem_type=i + 1) for i in range(4)]
@@ -40,11 +40,11 @@ for vae_idx, vae in enumerate(vaes):
 
 print(confusion_matrix)
 
-stems = ['Sine', 'Sawtooth', 'Square', 'Triangle']
+stems = ['Sine', 'Sawtooth', 'Square', 'Triangle'] if dataset_name == 'toy_dataset' else ['Drums', 'Bass', 'Other', 'Vocals']
 
 df_cm = pd.DataFrame(confusion_matrix, index=stems, columns=stems)
 # plt.figure(figsize=(10,7))
 sn.set(font_scale=1.4) # for label size
 sn.heatmap(df_cm, annot=False, annot_kws={"size": 16}) # font size
 
-plt.savefig('figures/confusion_matrix_elbo.png')
+plt.savefig(f'figures/confusion_matrix_elbo_{model_name}.png')

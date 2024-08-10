@@ -15,13 +15,16 @@ parser.add_argument('--linear',
 
 args = parser.parse_args()
 
+# todo: remove
+# args.linear = False
+# args.name = 'debug'
+
 debug = False
 
 dataset_name = 'toy_dataset' if args.name.__contains__('toy') else 'musdb_18_prior'
 
 dataset_train = TwoSourcesDataset(debug=debug, split='train', name=dataset_name, reduction_ratio=0.001)
 dataset_val = TwoSourcesDataset(debug=debug, split='val', name=dataset_name, reduction_ratio=0.001)
-
 
 name = args.name + ('_linear' if args.linear else '')
 

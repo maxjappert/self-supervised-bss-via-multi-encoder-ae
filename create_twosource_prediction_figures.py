@@ -21,26 +21,41 @@ image_h = hps_vae['image_h']
 image_w = hps_vae['image_w']
 vaes = get_vaes(name_vae, stem_indices)
 
-model_bss = get_model('toy_separator', image_h=64, image_w=64, k=2)
-model_bss_linear = get_model('toy_separator_linear', image_h=64, image_w=64, k=2)
+dataset_name = 'toy_dataset' if name_vae.__contains__('toy') else 'musdb_18_prior'
+
+model_bss = get_model(f'{name_vae}_separator', image_h=64, image_w=64, k=2)
+model_bss_linear = get_model(f'{name_vae}_separator_linear', image_h=64, image_w=64, k=2)
 
 test_datasets = [
-    PriorDataset('test', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=False, stem_type=i + 1)
+    PriorDataset('test', image_h=image_h, image_w=image_w, name=dataset_name, num_stems=4, debug=False, stem_type=i + 1)
     for i in range(4)]
 
 gt_data = [test_datasets[stem_index][17] for stem_index in stem_indices]
 gt_xs = [data['spectrogram'] for data in gt_data]
 
-gt_m = torch.sum(torch.cat(gt_xs), dim=0)
+gt_m = torch.sum(torch.cat(gt_xs), dim=0).to(device)
 
-separated_basis = separate(gt_m, hps_vae['hidden'], name=name_vae, finetuned=False, alpha=1, visualise=False,
+separated_basis = separate(gt_m,
+                           hps_vae,
+                           name=name_vae,
+                           finetuned=False,
+                           alpha=1,
+                           visualise=False,
                            verbose=False,
-                           constraint_term_weight=-15)
+                           constraint_term_weight=-15,
+                           stem_indices=stem_indices)
 separated_basis = [x_i.detach().cpu().view(64, 64).numpy() for x_i in separated_basis]
 
-separated_basis_finetuned = separate(gt_m, hps_vae['hidden'], name=name_vae, finetuned=True, alpha=1, visualise=False,
-                           verbose=False,
-                           constraint_term_weight=-18)
+separated_basis_finetuned = separate(gt_m,
+                                     hps_vae,
+                                     sigma_end=1.0 if name_vae.__contains__('musdb') else 0.5,
+                                     name=name_vae,
+                                     finetuned=True,
+                                     alpha=1,
+                                     visualise=False,
+                                     verbose=False,
+                                     constraint_term_weight=-18,
+                                     stem_indices=stem_indices)
 separated_basis_finetuned = [x_i.detach().cpu().view(64, 64).numpy() for x_i in separated_basis_finetuned]
 
 samples = [vae.decode(torch.randn(1, hps_vae['hidden']).to(device)).squeeze().detach().cpu() for vae in vaes]
@@ -65,7 +80,7 @@ fig, axs = plt.subplots(6, 3, figsize=(6, 10))
 gt = [gt_m] + gt_xs
 titles = ['Mixture', 'Source 1', 'Source 2']
 for i in range(3):
-    axs[0, i].imshow(rotate(gt[i].squeeze(), angle=180), cmap='grey')
+    axs[0, i].imshow(rotate(gt[i].squeeze().cpu(), angle=180), cmap='grey')
     axs[0, i].set_title(titles[i])
     axs[0, i].set_xticks([])
     axs[0, i].set_yticks([])
@@ -88,4 +103,4 @@ axs[4, 0].set_ylabel('Linear AE-BSS')
 axs[5, 0].set_ylabel('BASIS Finetuned')
 
 # plt.tight_layout()
-plt.savefig('figures/separation_2s.png')
+plt.savefig(f'figures/separation_2s_{name_vae}.png')

@@ -20,7 +20,7 @@ metrics = {'sdr': 0,
            'sir': 2,
            'sar': 3}
 
-assert results.shape == (7, k, len(metrics.keys()), 900)
+assert results.shape == (7, k, len(metrics.keys()), 100)
 
 for metric in metrics.keys():
     fig, ax1 = plt.subplots(figsize=(10, 6))
@@ -60,5 +60,5 @@ for metric in metrics.keys():
     ax1.legend()
 
     fig.tight_layout()  # otherwise the right y-label is slightly clipped
-    plt.savefig(f'toy_small_twosource_{metric}.png', dpi=300)
+    plt.savefig(f'toy_small_twosource_{metric}_new.png', dpi=300)
 

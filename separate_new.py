@@ -263,7 +263,7 @@ def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim):
 
 
 def separate(gt_m,
-             z_dim,
+             hps,
              L=10,
              T=100,
              alpha=1,
@@ -281,10 +281,12 @@ def separate(gt_m,
 
     x_dim = image_h * image_w
 
+    z_dim = hps['hidden']
+
     # stem_indices = [0, 3]
     # gt_xs = [val_datasets[stem_index][random.randint(0, 100)]['spectrogram'] for stem_index in stem_indices]
 
-    gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim)]).to(device)
+    gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim).to(device)]).to(device)
 
     vaes_noisy = get_vaes(name, stem_indices, sigma=sigma_end if finetuned else None)
     vaes_perfect = get_vaes(name, stem_indices)
@@ -296,6 +298,7 @@ def separate(gt_m,
     sigmas.requires_grad_(True)
 
     xz = []
+
 
     for i in range(k):
         noise_image = torch.rand(image_h, image_w).to(device)
@@ -324,7 +327,7 @@ def separate(gt_m,
         if finetuned:
             for stem_index in stem_indices:
                     sigma_model_name = f'sigma_{name}_stem{stem_index + 1}_{np.round(sigmas[i].detach().item(), 3)}'
-                    vae = VAE(latent_dim=hps['hidden'], image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
+                    vae = VAE(z_dim, image_h=image_h, image_w=image_w, use_blocks=hps['use_blocks'],
                               channels=hps['channels'], kernel_sizes=hps['kernel_sizes'], strides=hps['strides']).to(
                         device)
                     vae.load_state_dict(torch.load(f'checkpoints/{sigma_model_name}.pth', map_location=device))

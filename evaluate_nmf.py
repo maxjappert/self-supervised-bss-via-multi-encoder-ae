@@ -18,7 +18,7 @@ def nmf_approx_two_sources(S_mix_gt):
         S_mix_gt = np.mean(S_mix_gt, axis=2)
 
     nmf = NMF(n_components=2, random_state=0)
-    W = nmf.fit_transform(S_mix_gt)
+    W = nmf.fit_transform(S_mix_gt.cpu())
     H = nmf.components_
 
     # Reconstruct sources

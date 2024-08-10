@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 import random
 
@@ -42,7 +43,7 @@ image_h = 64
 image_w = 64
 
 name_vae = 'toy'
-hps_vae = json.load(open(f'hyperparameters/{name_vae}_stem1.json'))
+hps_vae = json.load(open(f'hyperparameters/{name_vae}.json'))
 
 model_bss = get_model('toy_separator', image_h=64, image_w=64, k=2)
 model_bss_linear = get_model('toy_separator_linear', image_h=64, image_w=64, k=2)
@@ -77,18 +78,21 @@ results_nmf = np.zeros((k, len(metrics.keys()), num_samples))
 for i in range(num_samples):
     stem_indices = [random.randint(0, 3), random.randint(0, 3)] # [0, 3]
     vaes = get_vaes(name_vae, stem_indices)
-    print(f'Processing {i+1}/{num_samples}')
-    gt_data = [test_datasets[stem_index][i + 15] for stem_index in stem_indices]
+    now = datetime.now()
+    timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    print(f'[{timestamp_str}]  Processing {i+1}/{num_samples}')
+    # to avoid, when the same stem is selected, the same sample
+    gt_data = [test_datasets[stem_index][i + 15 + j] for j, stem_index in enumerate(stem_indices)]
     gt_xs = [data['spectrogram'] for data in gt_data]
 
-    gt_m = torch.sum(torch.cat(gt_xs), dim=0)
+    gt_m = torch.sum(torch.cat(gt_xs), dim=0).to(device)
 
     # separate using basis
-    separated_basis = separate(gt_m, hps_vae['hidden'], name=name_vae, finetuned=False, alpha=1, visualise=False, verbose=False,
+    separated_basis = separate(gt_m, hps_vae, name=name_vae, stem_indices=stem_indices, finetuned=False, alpha=1, visualise=False, verbose=False,
                                constraint_term_weight=-15)
     separated_basis = [x_i.detach().cpu() for x_i in separated_basis]
 
-    separated_basis_finetuned = separate(gt_m, hps_vae['hidden'], name=name_vae, finetuned=True, alpha=1, visualise=False, verbose=False,
+    separated_basis_finetuned = separate(gt_m, hps_vae, name=name_vae, stem_indices=stem_indices, finetuned=True, alpha=1, visualise=False, verbose=False, sigma_end=0.5,
                                constraint_term_weight=-18)
     separated_basis_finetuned = [x_i.detach().cpu() for x_i in separated_basis_finetuned]
 
