@@ -62,7 +62,7 @@ for weight_index, sigma_L in enumerate(sigmas_L):
 
         gt_m = torch.sum(torch.cat(gt_xs), dim=0)
 
-        separated = separate(gt_m, hps['hidden'], name=name, finetuned=False, alpha=1, visualise=False, verbose=False, sigma_start=sigma_L, constraint_term_weight=-15)
+        separated = separate(gt_m, hps, name=name, stem_indices=stem_indices, finetuned=False, alpha=1, visualise=False, verbose=False, sigma_start=sigma_L, constraint_term_weight=-15)
 
         separated_1 = separated[0].detach().cpu().reshape((64, 64))
         separated_2 = separated[1].detach().cpu().reshape((64, 64))
@@ -81,27 +81,3 @@ for weight_index, sigma_L in enumerate(sigmas_L):
 
 np.save('results/sigma_Ls_evaluated.npy', sigmas_L)
 np.save('results/basis_sigma_toy_experiment_results.npy', basis)
-
-
-# save_image(gt_xs[0], f'images/0_gt0.png')
-# save_image(gt_xs[1], f'images/0_gt1.png')
-# save_image(separated_1, f'images/0_recon0.png')
-# save_image(separated_2, f'images/0_recon1.png')
-#
-# print(compute_spectral_sdr(gt_xs[0].squeeze(), separated_1))
-# print(compute_spectral_sdr(gt_xs[1].squeeze(), separated_2))
-#
-# print(compute_spectral_sdr(gt_xs[0].squeeze(), separated_2))
-# print(compute_spectral_sdr(gt_xs[1].squeeze(), separated_1))
-#
-# print(compute_spectral_sdr(gt_xs[0].squeeze(), gt_m))
-# print(compute_spectral_sdr(gt_xs[1].squeeze(), gt_m))
-#
-# print(compute_spectral_sdr(gt_xs[0].squeeze(), torch.rand_like(gt_xs[0].squeeze())))
-# print(compute_spectral_sdr(gt_xs[1].squeeze(), torch.rand_like(gt_xs[1].squeeze())))
-#
-# print(compute_spectral_sdr(gt_xs[0].squeeze(), gt_xs[0].squeeze()))
-# print(compute_spectral_sdr(gt_xs[1].squeeze(), gt_xs[1].squeeze()))
-
-
-# print(compute_spectral_metrics(gt_xs, [separated_1, separated_2], phases))

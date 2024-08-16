@@ -10,7 +10,7 @@ n_fft = 2048
 hop_length = 512
 
 
-def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from_file=False, sr=44100):
+def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from_file=False, sr=22050):
     if from_file:
         audio, _ = librosa.load(audio, sr=sr)
 

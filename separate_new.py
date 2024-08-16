@@ -1,7 +1,9 @@
+from datetime import datetime
 import json
 import random
 import sys
 
+import mir_eval
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -255,9 +257,11 @@ def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim):
         z = extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim)
 
         x_recon = vaes[stem_idx].decode(z.unsqueeze(dim=0))
-        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma.to(device) ** 2)
+        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma ** 2)
 
         total_log_prob += torch.sum(mvn.log_prob(x))
+
+        del x_recon, mvn, x, z
 
     return total_log_prob
 
@@ -293,7 +297,7 @@ def separate(gt_m,
 
     sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                             end=torch.log10(torch.tensor(sigma_end)),
-                            steps=L, base=10).flip(dims=[0])
+                            steps=L, base=10).flip(dims=[0]).to(device)
 
     sigmas.requires_grad_(True)
 
@@ -319,6 +323,9 @@ def separate(gt_m,
     # save_image(m, 'images/000_m.png')
 
     xz_chain = []
+
+    # eta_0 = delta * sigmas[0] ** 2 / sigmas[L - 1] ** 2
+    # eta_i_div_sigma_i_pow_2 = (eta_0 / sigmas[0] ** 2)
 
     for i in range(L):
         eta_i = delta * sigmas[i] ** 2 / sigmas[L - 1] ** 2
@@ -348,12 +355,16 @@ def separate(gt_m,
 
             grad_log_p_x_z = torch.autograd.grad(log_p_x_z, xz, retain_graph=True, create_graph=True)[0]
 
+            # print(eta_i)
             u = xz + eta_i * grad_log_p_x_z + torch.sqrt(2 * eta_i) * epsilon_t
             constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim)).float() * alpha
             elongated_constraint_term = torch.cat([constraint_term for _ in range(k)]) * constraint_term_weight
             xz = u - elongated_constraint_term  # minmax_rows(u - temp)
 
-        xz_chain.append(xz)
+            del epsilon_t, u, constraint_term, elongated_constraint_term, log_p_x_z, grad_log_p_x_z
+
+
+        xz_chain.append(xz.cpu())
 
         # for vis_idx in range(k):
             # x = extract_x(xz_chain[-1], vis_idx, x_dim=x_dim, z_dim=z_dim).view(image_h, image_w)
@@ -361,6 +372,11 @@ def separate(gt_m,
 
         if verbose:
             print(f'Appended {i + 1}/{L}')
+
+        for model in sigma_vaes:
+            del model
+
+        del sigma_vaes, eta_i
 
     final_xz = xz_chain[-1]
     final_xs = []
@@ -379,4 +395,64 @@ def separate(gt_m,
     final_xs = [extract_x(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
     final_zs = [extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
     # print(final_zs)
+
+    # clear memory from gpu
+    del xz_chain, xz, gt_m_xz, sigmas, gt_m, vaes_noisy, vaes_perfect
+
     return final_xs
+
+
+def evaluate_basis_ability(T, L, alpha, sigma_start, sigma_end, delta, recon_weight, image_h=64, image_w=64, num_samples=32, name_vae='toy', finetuned=False):
+    hps_vae = json.load(open(f'hyperparameters/{name_vae}_stem1.json'))
+
+    dataset_name = 'toy_dataset' if name_vae.__contains__('toy') else 'musdb_18_prior'
+
+    val_datasets = [
+        PriorDataset('val', image_h=image_h, image_w=image_w, name=dataset_name, num_stems=4, debug=debug,
+                     stem_type=i + 1)
+        for i in range(4)]
+
+    total_sdr = 0
+
+    for i in range(num_samples):
+        stem_indices = [random.randint(0, 3), random.randint(0, 3)] # [0, 3]
+        vaes = get_vaes(name_vae, stem_indices)
+        now = datetime.now()
+        timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        # print(f'[{timestamp_str}]  Processing {i+1}/{num_samples}')
+        # to avoid, when the same stem is selected, the same sample
+        gt_data = [val_datasets[stem_index][i + j] for j, stem_index in enumerate(stem_indices)]
+        gt_xs = [data['spectrogram'] for data in gt_data]
+
+        gt_m = torch.sum(torch.cat(gt_xs) / len(stem_indices), dim=0).to(device)
+
+        # separate using basis
+        separated_basis = separate(gt_m,
+                                   hps_vae,
+                                   name=name_vae,
+                                   stem_indices=stem_indices,
+                                   finetuned=finetuned,
+                                   alpha=alpha,
+                                   visualise=False,
+                                   verbose=False,
+                                   constraint_term_weight=recon_weight,
+                                   L=L, T=T,
+                                   sigma_start=sigma_start,
+                                   sigma_end=sigma_end,
+                                   delta=delta)
+        separated_basis = [x_i.detach().cpu() for x_i in separated_basis]
+
+        gt_m = gt_m.cpu()
+
+        gt_xs = np.array([x.squeeze().view(-1) for x in gt_xs])
+
+        print('starting')
+        sdr, isr, sir, sar, _ = mir_eval.separation.bss_eval_images(gt_xs, separated_basis)
+        print('done')
+
+        total_sdr += sdr.mean()
+
+        torch.cuda.empty_cache()
+
+    return total_sdr / num_samples
+

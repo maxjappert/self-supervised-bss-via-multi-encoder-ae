@@ -11,15 +11,17 @@ import seaborn as sn
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-model_name = 'musdb'
+model_name = 'toy'
 dataset_name = 'toy_dataset' if model_name.__contains__('toy') else 'musdb_18_prior'
 image_h = 64
 image_w = 64
 
-num_samples = 256
-
 test_datasets = [PriorDataset('test', image_h=image_h, image_w=image_w, name=dataset_name, num_stems=4, debug=False,
                                stem_type=i + 1) for i in range(4)]
+
+num_samples = len(test_datasets[0])
+
+print(f'Number of samples: {num_samples}')
 
 vaes = get_vaes(model_name, [0, 1, 2, 3])
 
@@ -27,7 +29,7 @@ confusion_matrix = np.zeros((4, 4))
 
 for vae_idx, vae in enumerate(vaes):
     for dataset_idx, dataset in enumerate(test_datasets):
-        dataloader = DataLoader(dataset, batch_size=num_samples, shuffle=False, num_workers=12)
+        dataloader = DataLoader(dataset, batch_size=num_samples, shuffle=True, num_workers=12)
         batch = next(iter(dataloader))
         batch = batch['spectrogram'].to(device).float()
         assert batch.shape[0] == num_samples

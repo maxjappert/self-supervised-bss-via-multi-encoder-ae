@@ -4,18 +4,21 @@ import math
 import os
 import random
 
+import cv2
+import mir_eval.separation
 import numpy as np
 import torch
 import torch.nn as nn
 import torchaudio
 from PIL import Image
 from torch.distributions import Normal, kl_divergence
-from torch.nn import BCEWithLogitsLoss, L1Loss, MSELoss
+from torch.nn import BCEWithLogitsLoss, L1Loss, MSELoss, BCELoss
 from torch.optim.lr_scheduler import CyclicLR
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchvision import models
 from torchvision.models import ResNet18_Weights
+from torchvision.models.optical_flow import Raft_Large_Weights, raft_large, raft_small, Raft_Small_Weights
 
 from models.cnn_ae_2d_spectrograms import *
 
@@ -25,6 +28,100 @@ from new_vae import NewVAE
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+class MultiModalDataset(Dataset):
+    def __init__(self, image_h=64, image_w=64, video_h=192, video_w=108):
+        self.video_master_path = os.path.join('data', 'rochester_preprocessed')
+        self.datapoints = os.listdir(self.video_master_path)
+
+
+        self.video_transforms = transforms.Compose([
+            transforms.Resize((video_h, image_h)),
+            transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
+            transforms.ToTensor(),
+        ])
+
+        self.image_transforms = transforms.Compose([
+            transforms.Resize((image_h, image_w)),
+            transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
+            transforms.ToTensor(),
+        ])
+
+    def __len__(self):
+        return len(self.datapoints) * 2
+
+    def get_phase(self, idx):
+        return np.load(os.path.join(self.video_master_path, self.datapoints[idx] + '_phase.npy'))
+
+    def min_max(self, x):
+        """
+        Simple min-max normalisation.
+        :param x: The unnormalised input.
+        :return: The normalised output in [0, 1].
+        """
+        #return x
+        normalised = (x - np.min(x)) / (np.max(x) - np.min(x))
+        return normalised
+
+
+    def __getitem__(self, idx):
+        filename = os.path.join(self.video_master_path, self.datapoints[idx])
+
+        video_path = os.path.join(filename, 'video.mp4')
+
+        cap = cv2.VideoCapture(video_path)
+
+        # Process video frame by frame
+        frames = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Convert the frame to RGB (OpenCV loads in BGR by default)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Convert the frame to a PIL image
+            pil_image = Image.fromarray(frame)
+
+            # Apply the transformations
+            transformed_frame = self.video_transforms(pil_image)
+
+            # Store the transformed frame
+            frames.append(transformed_frame)
+
+        # Release the video capture object
+        cap.release()
+
+        # Convert list of frames to a tensor of shape (num_frames, channels, height, width)
+        video_tensor = torch.stack(frames)
+
+        if idx % 2 == 0:
+            # this means the video matches the audio
+            label = 1
+            source_files = [os.path.join(filename, f's{i+1}.png') for i in range(2)]
+            # order shouldn't matter
+            random.shuffle(source_files)
+        else:
+            # this means the video and audio don't match
+            label = -1
+            filename1 = os.path.join(self.video_master_path, self.datapoints[random.randint(0, self.__len__() - 1)])
+            filename2 = os.path.join(self.video_master_path, self.datapoints[random.randint(0, self.__len__() - 1)])
+            filenames = [filename1, filename2]
+
+            source_files = [os.path.join(filenames[i], f's{i+1}.png') for i in range(2)]
+
+        spectrograms = [np.array(Image.open(source_files[i])) for i in range(2)]
+        # spectrograms = [self.min_max(spectrograms[i]) for i in range(2)]
+        spectrograms = [self.image_transforms(spectrograms[i]) for i in range(2)]
+        spectrograms = torch.stack(spectrograms, dim=0)
+
+        #print(spectrogram.min())
+        #print(spectrogram.max())
+
+        return {'video': video_tensor,
+                'sources': spectrograms,
+                'label': torch.tensor(label)
+                }
 
 class ResNetClassifier(nn.Module):
     def __init__(self, num_classes=4, pretrained=True):
@@ -447,7 +544,7 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
 
 
 def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.MSELoss(), name=None, contrastive_weight=0.01, contrastive_loss=False, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=1, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None, batch_norm=False, sigma=None, finetune=False):
-    print(f'Training {name}')
+    # print(f'Training {name}')
 
     criterion.reduction = 'sum'
 
@@ -590,7 +687,7 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
                 torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
                 print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
 
-    return best_model, best_recon_loss
+    return best_model, best_val_sdr
 
 
 def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn.MSELoss(), lr=1e-05, epochs=10, verbose=False, visualise=False, recon_weight=1, kld_weight=1, parent_name=None):
@@ -673,3 +770,167 @@ def finetune_sigma(og_vae, dataloader_train, dataloader_val, sigma, criterion=nn
 
 
     return best_model
+
+def test_vae(vae, dataset, num_samples=64):
+
+    dataloader = DataLoader(dataset, shuffle=True, batch_size=num_samples)
+
+    images_gt = next(iter(dataloader))['spectrogram']
+    images_recon, _, _ = vae(images_gt.float().to(device))
+
+    total_sdr = 0
+
+    for i in range(num_samples):
+
+        sdr, isr, sir, sar, _ = mir_eval.separation.bss_eval_images(images_gt[i].view(-1).detach().cpu(),
+                                                                    images_recon[i].view(-1).detach().cpu())
+
+        total_sdr += sdr
+
+    return total_sdr / num_samples
+
+
+class ResNetVAE(nn.Module):
+    def __init__(self, original_resnet, latent_dim):
+        super(ResNetVAE, self).__init__()
+
+        # Retain all layers except the final fully connected layer
+        self.resnet = nn.Sequential(*list(original_resnet.children())[:-1])
+
+
+        # Flattening layer
+        self.flatten = nn.Flatten()
+
+        # Fully connected layers for mean and log variance
+        self.fc_mu = nn.Linear(original_resnet.fc.in_features, latent_dim)
+        self.fc_logvar = nn.Linear(original_resnet.fc.in_features, latent_dim)
+
+    def encode(self, x):
+        # Pass through ResNet
+        x = self.resnet(x)
+
+        # Flatten the output for the FC layers
+        x = self.flatten(x)
+
+        # Get mean and log-variance
+        mu = self.fc_mu(x)
+        logvar = self.fc_logvar(x)
+
+        return mu, logvar
+
+    def reparameterize(self, mu, logvar):
+        # Reparameterization trick to sample from N(mu, var) from N(0,1)
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def forward(self, x):
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        return z, mu, logvar
+
+class SimpleFCN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size=1):
+        super(SimpleFCN, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)  # First fully connected layer
+        self.relu = nn.ReLU()                         # Activation function
+        self.fc2 = nn.Linear(hidden_size, output_size) # Second fully connected layer
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        out = self.fc1(x)  # Pass input through first layer
+        out = self.relu(out)  # Apply ReLU activation
+        out = self.fc2(out)  # Pass through second layer
+        return self.sigmoid(out)
+
+def train_video(data_loader_train, data_loader_val, lr_3d=1e-03, lr_2d=1e-03, lr_fc=1e-03, epochs=50, verbose=True):
+    model_raft = raft_small(weights=Raft_Small_Weights.DEFAULT).to(device)
+
+    resnet_3d = models.video.r3d_18(pretrained=True)
+    resnet_3d.stem[0] = nn.Conv3d(2, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+
+    vae_resnet_3d = ResNetVAE(resnet_3d, 32)
+
+    resnet_2d = models.resnet18(pretrained=False)
+    resnet_2d.conv1 = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False)
+
+    vae_resnet_2d = ResNetVAE(resnet_2d, latent_dim=32)
+
+    fc = SimpleFCN(input_size=resnet_3d.latent_dim + resnet_2d.latent_dim, hidden_size=(resnet_3d.latent_dim + resnet_2d.latent_dim)/2)
+
+    optimiser_3d = torch.optim.Adam(vae_resnet_3d.parameters(), lr=lr_3d)
+    optimiser_2d = torch.optim.Adam(vae_resnet_2d.parameters(), lr=lr_2d)
+    optimiser_fc = torch.optim.Adam(fc.parameters(), lr=lr_fc)
+
+    criterion = BCELoss()
+
+    best_val_loss = float('inf')
+
+    model_raft.eval()
+
+    for epoch in range(epochs):
+        resnet_2d.train()
+        resnet_3d.train()
+        fc.train()
+        train_loss = 0
+        for idx, batch in enumerate(data_loader_train):
+            optimiser_3d.zero_grad()
+            optimiser_2d.zero_grad()
+            optimiser_fc.zero_grad()
+
+            spectrograms = batch['sources'].to(device)
+            video = batch['video'].to(device)
+            y = batch['label'].to(device)
+
+            optical_flows = []
+
+            num_frames = video.shape[1]
+
+            for i in range(num_frames):
+                optical_flow = model_raft(video[:, i, :, :, :], video[:, i+1, :, :, :])
+                optical_flows.append(optical_flow)
+
+                # each output: (batch_size, 2, h, w)
+
+            optical_flows = torch.stack(optical_flows, dim=1)
+            optical_flows = optical_flows.permute(0, 2, 1, 3, 4)
+
+            z_3d, mu_3d, log_var_3d = resnet_3d(optical_flows)
+
+            z_2d, mu_2d, log_var_2d = resnet_2d(spectrograms)
+
+            z = torch.cat((z_2d, z_3d), dim=1)
+
+            y_hat = fc(z)
+
+            loss = criterion(y_hat, y)
+
+            loss.backward()
+            optimiser.step()
+
+            train_loss += loss.item()
+
+        avg_train_loss = train_loss / len(data_loader_train.dataset)
+
+        val_loss = 0
+        resnet_2d.eval()
+        resnet_3d.eval()
+        fc.eval()
+        with torch.no_grad():
+            for batch in data_loader_val:
+                print('here')
+
+        avg_val_loss = val_loss / len(data_loader_val.dataset)
+
+        if verbose:
+            print(
+                f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            # best_model = vae
+#
+            # if name:
+            #     torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
+            #     print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
+

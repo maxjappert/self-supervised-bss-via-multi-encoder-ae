@@ -41,7 +41,7 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    print('seed set')
+    print(f'seed {seed} set')
 
 
 # Set seed for reproducibility
@@ -375,7 +375,7 @@ def train(dataset_train, dataset_val, batch_size=64, channels=[24, 48, 96, 144, 
     scheduler = StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
 
     # TODO: Allow for different loss functions
-    recon_loss = nn.BCEWithLogitsLoss()
+    recon_loss = nn.MSELoss() # nn.BCEWithLogitsLoss()
     sep_loss = WeightSeparationLoss(model.num_encoders, sep_norm)
 
     train_losses = []

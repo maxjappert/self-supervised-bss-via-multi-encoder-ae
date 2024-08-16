@@ -15,7 +15,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 k = 2
 stem_indices = [0, 2]
 
-name_vae = 'toy'
+name_vae = 'musdb'
 hps_vae = json.load(open(f'hyperparameters/{name_vae}_stem1.json'))
 image_h = hps_vae['image_h']
 image_w = hps_vae['image_w']

@@ -3,13 +3,15 @@ import sys
 import numpy as np
 from sympy.physics.control.control_plots import plt
 
-results_basis = np.load('../results/results_basis.npy')
-results_basis_finetuned = np.load('../results/results_basis_finetuned.npy')
-results_bss = np.load('../results/results_bss.npy')
-results_bss_linear = np.load('../results/results_bss_linear.npy')
-results_noise = np.load('../results/results_noise.npy')
-results_prior_samples = np.load('../results/results_prior_samples.npy')
-results_nmf = np.load('../results/results_nmf.npy')
+vae_name = 'musdb'
+
+results_basis = np.load(f'../results/results_basis_{vae_name}.npy')
+results_basis_finetuned = np.load(f'../results/results_basis_finetuned_{vae_name}.npy')
+results_bss = np.load(f'../results/results_bss_{vae_name}.npy')
+results_bss_linear = np.load(f'../results/results_bss_linear_{vae_name}.npy')
+results_noise = np.load(f'../results/results_noise_{vae_name}.npy')
+results_prior_samples = np.load(f'../results/results_prior_samples_{vae_name}.npy')
+results_nmf = np.load(f'../results/results_nmf_{vae_name}.npy')
 
 results = np.stack((results_basis, results_basis_finetuned, results_bss, results_bss_linear, results_noise, results_prior_samples, results_nmf))
 
@@ -20,18 +22,20 @@ metrics = {'sdr': 0,
            'sir': 2,
            'sar': 3}
 
-assert results.shape == (7, k, len(metrics.keys()), 100)
+assert results.shape == (7, k, len(metrics.keys()), results.shape[3])
+
+data_name = 'Toy' if vae_name.__contains__('toy') else 'MUSDB18'
 
 for metric in metrics.keys():
     fig, ax1 = plt.subplots(figsize=(10, 6))
 
     ax1.set_xlabel('Method')
     ax1.set_ylabel(metric.upper())
-    ax1.set_title(f'{metric.upper()} of the discussed Source Separation Approaches', fontsize=16)
+    ax1.set_title(f'{metric.upper()} of the discussed Source Separation methods on {data_name} data', fontsize=16)
 
     res1 = ax1.boxplot(
         results[:, 0, metrics[metric], :].T, positions=np.arange(7)-0.2, widths=0.2,
-        patch_artist=True, label='Source 1'
+        patch_artist=True, label='Source 2'
     )
     for element in ['boxes', 'whiskers', 'fliers', 'means', 'medians', 'caps']:
         plt.setp(res1[element], color='k')
@@ -60,5 +64,5 @@ for metric in metrics.keys():
     ax1.legend()
 
     fig.tight_layout()  # otherwise the right y-label is slightly clipped
-    plt.savefig(f'toy_small_twosource_{metric}_new.png', dpi=300)
+    plt.savefig(f'small_twosource_{metric}_{vae_name}.png', dpi=300)
 

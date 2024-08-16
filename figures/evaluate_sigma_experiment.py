@@ -1,6 +1,7 @@
 import sys
 
 import numpy as np
+from mir_eval.chord import evaluate
 from sympy.physics.control.control_plots import plt
 
 evaluated_sigmas = np.load('../results/sigma_Ls_evaluated.npy')
@@ -53,7 +54,7 @@ for metric in metrics.keys():
 
     # ax1.set_xlim([-0.55, 11.55])
     ax1.set_xticks(range(len(evaluated_sigmas)))#
-    ax1.set_xticklabels([round(sigma) for sigma in evaluated_sigmas])
+    ax1.set_xticklabels(evaluated_sigmas)
     ax1.grid(True, linestyle='--', alpha=0.7)
     ax1.legend()
 
