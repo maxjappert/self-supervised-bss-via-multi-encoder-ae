@@ -867,92 +867,74 @@ class VideoModel(nn.Module):
     def __init__(self):
         super(VideoModel, self).__init__()
 
-        # Define layers here
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.fc1 = nn.Linear(in_features=64 * 7 * 7, out_features=128)
-        self.fc2 = nn.Linear(in_features=128, out_features=10)
+        self.model_raft = raft_small(weights=Raft_Small_Weights.DEFAULT)
+        self.model_raft.eval()
 
-    def forward(self, x):
-        # Define the forward pass
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
+        resnet_3d = models.video.r3d_18(pretrained=True)
+        resnet_3d.stem[0] = nn.Conv3d(2, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
 
-        x = self.conv2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
+        self.vae_resnet_3d = ResNetVAE(resnet_3d, 32)
 
-        x = x.view(x.size(0), -1)  # Flatten the tensor
+        resnet_2d = models.resnet18(pretrained=False)
+        resnet_2d.conv1 = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False)
 
-        x = self.fc1(x)
-        x = F.relu(x)
+        self.vae_resnet_2d = ResNetVAE(resnet_2d, latent_dim=32)
 
-        x = self.fc2(x)
+        self.fc = SimpleFCN(input_size=self.vae_resnet_3d.latent_dim + self.vae_resnet_2d.latent_dim,
+                       hidden_size=(self.vae_resnet_3d.latent_dim + self.vae_resnet_2d.latent_dim) // 2)
 
-        return x
+    def get_optical_flows(self, video):
+        optical_flows = []
 
-def train_video(data_loader_train, data_loader_val, lr_3d=1e-03, lr_2d=1e-03, lr_fc=1e-03, epochs=50, verbose=True):
-    model_raft = raft_small(weights=Raft_Small_Weights.DEFAULT).to(device)
+        num_frames = video.shape[1]
 
-    resnet_3d = models.video.r3d_18(pretrained=True)
-    resnet_3d.stem[0] = nn.Conv3d(2, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+        for i in range(num_frames - 1):
+            optical_flow = self.model_raft(video[:, i, :, :, :], video[:, i + 1, :, :, :])
+            optical_flows.append(optical_flow[-1].detach().cpu())
 
-    vae_resnet_3d = ResNetVAE(resnet_3d, 32).to(device)
+            # each output: (batch_size, 2, h, w)
 
-    resnet_2d = models.resnet18(pretrained=False)
-    resnet_2d.conv1 = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False)
+        optical_flows = torch.stack(optical_flows, dim=1)
+        optical_flows = optical_flows.permute(0, 2, 1, 3, 4).to(device)
 
-    vae_resnet_2d = ResNetVAE(resnet_2d, latent_dim=32).to(device)
+        return optical_flows
 
-    fc = SimpleFCN(input_size=vae_resnet_3d.latent_dim + vae_resnet_2d.latent_dim, hidden_size=(vae_resnet_3d.latent_dim + vae_resnet_2d.latent_dim)//2).to(device)
+    def get_latent_representation(self, video, spectrograms):
+        optical_flows = self.get_optical_flows(video)
 
-    optimiser_3d = torch.optim.Adam(vae_resnet_3d.parameters(), lr=lr_3d)
-    optimiser_2d = torch.optim.Adam(vae_resnet_2d.parameters(), lr=lr_2d)
-    optimiser_fc = torch.optim.Adam(fc.parameters(), lr=lr_fc)
+        z_3d, mu_3d, log_var_3d = self.vae_resnet_3d(optical_flows)
+
+        z_2d, mu_2d, log_var_2d = self.vae_resnet_2d(spectrograms)
+
+        z = torch.cat((z_2d, z_3d), dim=1)
+
+        return z, mu_2d, log_var_2d, mu_3d, log_var_3d
+
+    def forward(self, video, spectrograms):
+        z, mu_2d, log_var_2d, mu_3d, log_var_3d = self.get_latent_representation(video, spectrograms)
+
+        return self.fc(z), mu_2d, log_var_2d, mu_3d, log_var_3d
+
+def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose=True):
+    model = VideoModel().to(device)
+    optimiser = torch.optim.Adam(model.parameters(), lr=lr)
 
     criterion = BCELoss()
 
     best_val_loss = float('inf')
 
-    model_raft.eval()
-
     for epoch in range(epochs):
         print(f'epoch {epoch+1}')
-        vae_resnet_2d.train()
-        vae_resnet_3d.train()
-        fc.train()
+        model.train()
         train_loss = 0
         for idx, batch in enumerate(data_loader_train):
-            optimiser_3d.zero_grad()
-            optimiser_2d.zero_grad()
-            optimiser_fc.zero_grad()
+            optimiser.zero_grad()
 
             spectrograms = batch['sources'].to(device)
             video = batch['video'].to(device)
             y = batch['label'].to(device)
 
-            optical_flows = []
-
-            num_frames = video.shape[1]
-
-            for i in range(num_frames-1):
-                optical_flow = model_raft(video[:, i, :, :, :], video[:, i+1, :, :, :])
-                optical_flows.append(optical_flow[-1].detach().cpu())
-
-                # each output: (batch_size, 2, h, w)
-
-            optical_flows = torch.stack(optical_flows, dim=1)
-            optical_flows = optical_flows.permute(0, 2, 1, 3, 4).to(device)
-            optical_flows = optical_flows.to(device)
-
-            z_3d, mu_3d, log_var_3d = vae_resnet_3d(optical_flows)
-
-            z_2d, mu_2d, log_var_2d = vae_resnet_2d(spectrograms)
-
-            z = torch.cat((z_2d, z_3d), dim=1)
-
-            y_hat = fc(z)
+            y_hat, mu_2d, log_var_2d, mu_3d, log_var_3d = model(video, spectrograms)
             y_hat = y_hat.squeeze()
 
             loss_recon = criterion(y_hat, y)
@@ -963,42 +945,21 @@ def train_video(data_loader_train, data_loader_val, lr_3d=1e-03, lr_2d=1e-03, lr
             loss = loss_recon + loss_kl_1 + loss_kl_2
 
             loss.backward()
-            optimiser_3d.step()
-            optimiser_2d.step()
-            optimiser_fc.step()
+            optimiser.step()
 
             train_loss += loss.item()
 
         avg_train_loss = train_loss / len(data_loader_train.dataset)
 
         val_loss = 0
-        vae_resnet_2d.eval()
-        vae_resnet_3d.eval()
-        fc.eval()
+        model.eval()
         with torch.no_grad():
             for batch in data_loader_val:
                 spectrograms = batch['sources'].to(device)
                 video = batch['video'].to(device)
                 y = batch['label'].to(device)
 
-                optical_flows = []
-
-                num_frames = video.shape[1]
-
-                for i in range(num_frames - 1):
-                    optical_flow = model_raft(video[:, i, :, :, :], video[:, i + 1, :, :, :])
-                    optical_flows.append(optical_flow[-1].detach().cpu())
-
-                optical_flows = torch.stack(optical_flows, dim=1)
-                optical_flows = optical_flows.permute(0, 2, 1, 3, 4)
-                optical_flows = optical_flows.to(device)
-
-                z_3d, mu_3d, log_var_3d = vae_resnet_3d(optical_flows)
-                z_2d, mu_2d, log_var_2d = vae_resnet_2d(spectrograms)
-
-                z = torch.cat((z_2d, z_3d), dim=1)
-
-                y_hat = fc(z)
+                y_hat, mu_2d, log_var_2d, mu_3d, log_var_3d = model(video, spectrograms)
                 y_hat = y_hat.squeeze()
 
                 loss_recon = criterion(y_hat, y)
@@ -1007,6 +968,8 @@ def train_video(data_loader_train, data_loader_val, lr_3d=1e-03, lr_2d=1e-03, lr
                 loss_kl_2 = -0.5 * torch.mean(1 + log_var_3d - mu_3d.pow(2) - log_var_3d.exp())
 
                 loss = loss_recon + loss_kl_1 + loss_kl_2
+
+                loss.backward()
 
                 val_loss += loss.item()
 
