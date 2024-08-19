@@ -17,6 +17,7 @@ from torch.optim.lr_scheduler import CyclicLR
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchvision import models
+from torchvision.io import read_video
 from torchvision.models import ResNet18_Weights
 from torchvision.models.optical_flow import Raft_Large_Weights, raft_large, raft_small, Raft_Small_Weights
 
@@ -29,21 +30,27 @@ from new_vae import NewVAE
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class MultiModalDataset(Dataset):
-    def __init__(self, image_h=64, image_w=64, video_h=192, video_w=108):
-        self.video_master_path = os.path.join('data', 'rochester_preprocessed')
+    def __init__(self, split, image_h=64, image_w=64, video_h=288, video_w=168):
+        self.video_master_path = os.path.join('data', 'rochester_preprocessed', split)
         self.datapoints = os.listdir(self.video_master_path)
 
+        self.video_h = video_h
+        self.video_w = video_w
+        self.image_h = image_h
+        self.image_w = image_w
 
         self.video_transforms = transforms.Compose([
-            transforms.Resize((video_h, image_h)),
-            transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
-            transforms.ToTensor(),
+            # transforms.ToPILImage(),  # Ensure this if the input is a NumPy array
+            transforms.Resize((video_h, video_w))
+            # transforms.ToTensor()
+            # transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
         ])
 
         self.image_transforms = transforms.Compose([
+            # transforms.ToPILImage(),  # Ensure this if the input is a NumPy array
             transforms.Resize((image_h, image_w)),
-            transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
             transforms.ToTensor(),
+            # transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
         ])
 
     def __len__(self):
@@ -68,32 +75,40 @@ class MultiModalDataset(Dataset):
 
         video_path = os.path.join(filename, 'video.mp4')
 
-        cap = cv2.VideoCapture(video_path)
+        video_tensor = read_video(video_path, output_format='TCHW')[0]
+        # video_tensor = self.video_transforms(video_tensor)
 
-        # Process video frame by frame
-        frames = []
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+        # print(video_tensor.shape)
 
-            # Convert the frame to RGB (OpenCV loads in BGR by default)
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        transformed_frames = []
 
-            # Convert the frame to a PIL image
-            pil_image = Image.fromarray(frame)
+        to_pil = transforms.ToPILImage()
+        to_tensor = transforms.ToTensor()
+        for frame_idx in range(video_tensor.shape[0]):
+            frame = video_tensor[frame_idx]
+            frame = self.video_transforms(frame)  # Apply the defined transformations
+            frame = torch.tensor(frame, dtype=torch.float32)
+            # print(frame.shape)
+            transformed_frames.append(frame)
 
-            # Apply the transformations
-            transformed_frame = self.video_transforms(pil_image)
+        video_tensor = torch.stack(transformed_frames, dim=0)
 
-            # Store the transformed frame
-            frames.append(transformed_frame)
+        # (num_frames, 3, h, w)
 
-        # Release the video capture object
-        cap.release()
+        num_frames = video_tensor.shape[0]
+        if num_frames < 150:
+            # Calculate how many frames to add
+            frames_to_add = 150 - num_frames
 
-        # Convert list of frames to a tensor of shape (num_frames, channels, height, width)
-        video_tensor = torch.stack(frames)
+            # Create black frames with the same shape as existing frames (C, H, W)
+            black_frame = torch.zeros((self.video_h, self.video_w, 3)).permute(2, 0, 1)  # (C, H, W)
+            black_frames = black_frame.unsqueeze(0).repeat(frames_to_add, 1, 1, 1)  # (frames_to_add, C, H, W)
+
+            # Concatenate the original video tensor with the black frames
+            video_tensor = torch.cat([video_tensor, black_frames], dim=0)
+
+        # (num_frames, 3, h, w)
+        assert video_tensor.shape[0] == 150, "Video tensor should have exactly 150 frames after padding."
 
         if idx % 2 == 0:
             # this means the video matches the audio
@@ -103,25 +118,27 @@ class MultiModalDataset(Dataset):
             random.shuffle(source_files)
         else:
             # this means the video and audio don't match
-            label = -1
-            filename1 = os.path.join(self.video_master_path, self.datapoints[random.randint(0, self.__len__() - 1)])
-            filename2 = os.path.join(self.video_master_path, self.datapoints[random.randint(0, self.__len__() - 1)])
+            label = 0
+            filename1 = os.path.join(self.video_master_path, self.datapoints[random.randint(0, len(self.datapoints)-1)])
+            filename2 = os.path.join(self.video_master_path, self.datapoints[random.randint(0, len(self.datapoints)-1)])
             filenames = [filename1, filename2]
 
             source_files = [os.path.join(filenames[i], f's{i+1}.png') for i in range(2)]
 
-        spectrograms = [np.array(Image.open(source_files[i])) for i in range(2)]
+        spectrograms = [Image.open(source_files[i]).convert('L') for i in range(2)]
         # spectrograms = [self.min_max(spectrograms[i]) for i in range(2)]
-        spectrograms = [self.image_transforms(spectrograms[i]) for i in range(2)]
+        spectrograms = [self.image_transforms(spectrograms[i]).squeeze() for i in range(2)]
+        # spectrograms = [torch.tensor(spectrograms[i]) for i in range(2)]
         spectrograms = torch.stack(spectrograms, dim=0)
 
         #print(spectrogram.min())
         #print(spectrogram.max())
 
-        return {'video': video_tensor,
+        return {
+                'video': video_tensor,
                 'sources': spectrograms,
-                'label': torch.tensor(label)
-                }
+                'label': torch.tensor(label, dtype=torch.float32)
+               }
 
 class ResNetClassifier(nn.Module):
     def __init__(self, num_classes=4, pretrained=True):
@@ -805,6 +822,8 @@ class ResNetVAE(nn.Module):
         self.fc_mu = nn.Linear(original_resnet.fc.in_features, latent_dim)
         self.fc_logvar = nn.Linear(original_resnet.fc.in_features, latent_dim)
 
+        self.latent_dim = latent_dim
+
     def encode(self, x):
         # Pass through ResNet
         x = self.resnet(x)
@@ -843,20 +862,50 @@ class SimpleFCN(nn.Module):
         out = self.fc2(out)  # Pass through second layer
         return self.sigmoid(out)
 
+
+class VideoModel(nn.Module):
+    def __init__(self):
+        super(VideoModel, self).__init__()
+
+        # Define layers here
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.fc1 = nn.Linear(in_features=64 * 7 * 7, out_features=128)
+        self.fc2 = nn.Linear(in_features=128, out_features=10)
+
+    def forward(self, x):
+        # Define the forward pass
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
+
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
+
+        x = x.view(x.size(0), -1)  # Flatten the tensor
+
+        x = self.fc1(x)
+        x = F.relu(x)
+
+        x = self.fc2(x)
+
+        return x
+
 def train_video(data_loader_train, data_loader_val, lr_3d=1e-03, lr_2d=1e-03, lr_fc=1e-03, epochs=50, verbose=True):
     model_raft = raft_small(weights=Raft_Small_Weights.DEFAULT).to(device)
 
     resnet_3d = models.video.r3d_18(pretrained=True)
     resnet_3d.stem[0] = nn.Conv3d(2, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
 
-    vae_resnet_3d = ResNetVAE(resnet_3d, 32)
+    vae_resnet_3d = ResNetVAE(resnet_3d, 32).to(device)
 
     resnet_2d = models.resnet18(pretrained=False)
     resnet_2d.conv1 = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False)
 
-    vae_resnet_2d = ResNetVAE(resnet_2d, latent_dim=32)
+    vae_resnet_2d = ResNetVAE(resnet_2d, latent_dim=32).to(device)
 
-    fc = SimpleFCN(input_size=resnet_3d.latent_dim + resnet_2d.latent_dim, hidden_size=(resnet_3d.latent_dim + resnet_2d.latent_dim)/2)
+    fc = SimpleFCN(input_size=vae_resnet_3d.latent_dim + vae_resnet_2d.latent_dim, hidden_size=(vae_resnet_3d.latent_dim + vae_resnet_2d.latent_dim)//2).to(device)
 
     optimiser_3d = torch.optim.Adam(vae_resnet_3d.parameters(), lr=lr_3d)
     optimiser_2d = torch.optim.Adam(vae_resnet_2d.parameters(), lr=lr_2d)
@@ -869,8 +918,9 @@ def train_video(data_loader_train, data_loader_val, lr_3d=1e-03, lr_2d=1e-03, lr
     model_raft.eval()
 
     for epoch in range(epochs):
-        resnet_2d.train()
-        resnet_3d.train()
+        print(f'epoch {epoch+1}')
+        vae_resnet_2d.train()
+        vae_resnet_3d.train()
         fc.train()
         train_loss = 0
         for idx, batch in enumerate(data_loader_train):
@@ -886,39 +936,79 @@ def train_video(data_loader_train, data_loader_val, lr_3d=1e-03, lr_2d=1e-03, lr
 
             num_frames = video.shape[1]
 
-            for i in range(num_frames):
+            for i in range(num_frames-1):
                 optical_flow = model_raft(video[:, i, :, :, :], video[:, i+1, :, :, :])
-                optical_flows.append(optical_flow)
+                optical_flows.append(optical_flow[-1].detach().cpu())
 
                 # each output: (batch_size, 2, h, w)
 
             optical_flows = torch.stack(optical_flows, dim=1)
-            optical_flows = optical_flows.permute(0, 2, 1, 3, 4)
+            optical_flows = optical_flows.permute(0, 2, 1, 3, 4).to(device)
+            optical_flows = optical_flows.to(device)
 
-            z_3d, mu_3d, log_var_3d = resnet_3d(optical_flows)
+            z_3d, mu_3d, log_var_3d = vae_resnet_3d(optical_flows)
 
-            z_2d, mu_2d, log_var_2d = resnet_2d(spectrograms)
+            z_2d, mu_2d, log_var_2d = vae_resnet_2d(spectrograms)
 
             z = torch.cat((z_2d, z_3d), dim=1)
 
             y_hat = fc(z)
+            y_hat = y_hat.squeeze()
 
-            loss = criterion(y_hat, y)
+            loss_recon = criterion(y_hat, y)
+
+            loss_kl_1 = -0.5 * torch.mean(1 + log_var_2d - mu_2d.pow(2) - log_var_2d.exp())
+            loss_kl_2 = -0.5 * torch.mean(1 + log_var_3d - mu_3d.pow(2) - log_var_3d.exp())
+
+            loss = loss_recon + loss_kl_1 + loss_kl_2
 
             loss.backward()
-            optimiser.step()
+            optimiser_3d.step()
+            optimiser_2d.step()
+            optimiser_fc.step()
 
             train_loss += loss.item()
 
         avg_train_loss = train_loss / len(data_loader_train.dataset)
 
         val_loss = 0
-        resnet_2d.eval()
-        resnet_3d.eval()
+        vae_resnet_2d.eval()
+        vae_resnet_3d.eval()
         fc.eval()
         with torch.no_grad():
             for batch in data_loader_val:
-                print('here')
+                spectrograms = batch['sources'].to(device)
+                video = batch['video'].to(device)
+                y = batch['label'].to(device)
+
+                optical_flows = []
+
+                num_frames = video.shape[1]
+
+                for i in range(num_frames - 1):
+                    optical_flow = model_raft(video[:, i, :, :, :], video[:, i + 1, :, :, :])
+                    optical_flows.append(optical_flow[-1].detach().cpu())
+
+                optical_flows = torch.stack(optical_flows, dim=1)
+                optical_flows = optical_flows.permute(0, 2, 1, 3, 4)
+                optical_flows = optical_flows.to(device)
+
+                z_3d, mu_3d, log_var_3d = vae_resnet_3d(optical_flows)
+                z_2d, mu_2d, log_var_2d = vae_resnet_2d(spectrograms)
+
+                z = torch.cat((z_2d, z_3d), dim=1)
+
+                y_hat = fc(z)
+                y_hat = y_hat.squeeze()
+
+                loss_recon = criterion(y_hat, y)
+
+                loss_kl_1 = -0.5 * torch.mean(1 + log_var_2d - mu_2d.pow(2) - log_var_2d.exp())
+                loss_kl_2 = -0.5 * torch.mean(1 + log_var_3d - mu_3d.pow(2) - log_var_3d.exp())
+
+                loss = loss_recon + loss_kl_1 + loss_kl_2
+
+                val_loss += loss.item()
 
         avg_val_loss = val_loss / len(data_loader_val.dataset)
 
