@@ -2,6 +2,7 @@ import datetime
 import json
 import math
 import os
+import pickle
 import random
 
 import cv2
@@ -20,6 +21,7 @@ from torchvision import models
 from torchvision.io import read_video
 from torchvision.models import ResNet18_Weights
 from torchvision.models.optical_flow import Raft_Large_Weights, raft_large, raft_small, Raft_Small_Weights
+from torchvision.models.video import R3D_18_Weights
 
 from models.cnn_ae_2d_spectrograms import *
 
@@ -30,9 +32,9 @@ from new_vae import NewVAE
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class MultiModalDataset(Dataset):
-    def __init__(self, split, image_h=64, image_w=64, video_h=288, video_w=168):
+    def __init__(self, split, image_h=64, image_w=64, video_h=128, video_w=128, debug=False):
         self.video_master_path = os.path.join('data', 'rochester_preprocessed', split)
-        self.datapoints = os.listdir(self.video_master_path)
+        self.datapoints = os.listdir(self.video_master_path) if not debug else os.listdir(self.video_master_path)[::40]
 
         self.video_h = video_h
         self.video_w = video_w
@@ -41,17 +43,19 @@ class MultiModalDataset(Dataset):
 
         self.video_transforms = transforms.Compose([
             # transforms.ToPILImage(),  # Ensure this if the input is a NumPy array
-            transforms.Resize((video_h, video_w))
-            # transforms.ToTensor()
-            # transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
+            transforms.Resize((video_h, video_w)),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
         ])
 
         self.image_transforms = transforms.Compose([
             # transforms.ToPILImage(),  # Ensure this if the input is a NumPy array
             transforms.Resize((image_h, image_w)),
             transforms.ToTensor(),
-            # transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
+            transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
         ])
+
+        self.debug = debug
 
     def __len__(self):
         return len(self.datapoints) * 2
@@ -71,11 +75,11 @@ class MultiModalDataset(Dataset):
 
 
     def __getitem__(self, idx):
-        filename = os.path.join(self.video_master_path, self.datapoints[idx])
+        filename = os.path.join(self.video_master_path, self.datapoints[idx // 2])
 
         video_path = os.path.join(filename, 'video.mp4')
 
-        video_tensor = read_video(video_path, output_format='TCHW')[0]
+        video_tensor = read_video(video_path, output_format='TCHW', pts_unit='sec')[0]
         # video_tensor = self.video_transforms(video_tensor)
 
         # print(video_tensor.shape)
@@ -86,9 +90,8 @@ class MultiModalDataset(Dataset):
         to_tensor = transforms.ToTensor()
         for frame_idx in range(video_tensor.shape[0]):
             frame = video_tensor[frame_idx]
-            frame = self.video_transforms(frame)  # Apply the defined transformations
-            frame = torch.tensor(frame, dtype=torch.float32)
-            # print(frame.shape)
+            frame = self.video_transforms(frame).float()  # Apply the defined transformations
+#             # print(frame.shape)
             transformed_frames.append(frame)
 
         video_tensor = torch.stack(transformed_frames, dim=0)
@@ -186,6 +189,71 @@ class SDRLoss(torch.nn.Module):
     def forward(self, estimated_signal, original_signal):
         sdr = compute_sdr(estimated_signal, original_signal)
         return torch.exp(-torch.mean(sdr))  # We negate SDR because we want to maximize it
+
+
+class PriorDatasetVideo(Dataset):
+    def __init__(self, split, debug=False, image_h=64, image_w=64, sigma=None, stem_type=None):
+        self.data_point_names = []
+        self.master_path = os.path.join('data', 'rochester_preprocessed', split)
+        self.sigma = sigma
+        self.stem_type = stem_type
+
+        # permitted_types = list(range(1, num_stems+1)) if stem_type is None else [stem_type]
+
+        for data_folder in os.listdir(self.master_path):
+            if random.random() < 0.9 and debug:
+                continue
+
+            folder = os.path.join(self.master_path, data_folder)
+
+            for file in os.listdir(folder):
+                if file.__contains__(stem_type) and file[-4:] == '.png':
+                    self.data_point_names.append(os.path.join(data_folder, file[:-4]))
+                    break
+
+        self.transforms = transforms.Compose([
+            transforms.ToTensor(),  # Convert numpy array to tensor
+            transforms.Resize((image_h, image_w)),
+            # transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0)
+        ])
+
+    def __len__(self):
+        return len(self.data_point_names)
+
+    def get_phase(self, idx):
+        return np.load(os.path.join(self.master_path, self.data_point_names[idx] + '_phase.npy'))
+
+    def min_max(self, x):
+        """
+        Simple min-max normalisation.
+        :param x: The unnormalised input.
+        :return: The normalised output in [0, 1].
+        """
+        #return x
+        normalised = (x - np.min(x)) / (np.max(x) - np.min(x))
+        return normalised
+
+
+    def __getitem__(self, idx):
+
+        #print(np.array(Image.open(os.path.join(self.master_path, self.data_point_names[idx] + '.png'))).mean(axis=-1).shape)
+
+        if idx > len(self.data_point_names)-1:
+            print('Index too high.')
+            idx = len(self.data_point_names)-1
+
+        unnormalised_spectrogram = np.array(Image.open(os.path.join(self.master_path, self.data_point_names[idx] + '.png'))).mean(axis=-1)
+
+        if self.sigma is not None:
+            unnormalised_spectrogram += np.random.randn(*unnormalised_spectrogram.shape) * self.sigma**2
+
+        spectrogram_np = self.min_max(unnormalised_spectrogram)
+        spectrogram = self.transforms(spectrogram_np)
+
+        # print(spectrogram.min())
+        # print(spectrogram.max())
+
+        return {'spectrogram': spectrogram}
 
 
 class PriorDataset(Dataset):
@@ -560,6 +628,29 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
         json.dump(variables, file)
 
 
+def export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, video_h, video_w, image_h, image_w):
+    """
+    Saves the passed hyperparameters to a json file.
+    :return: None
+    """
+    variables = {
+        'name': name,
+        'z_dim_2d': z_dim_2d,
+        'z_dim_3d': z_dim_3d,
+        'video_h': video_h,
+        'video_w': video_w,
+        'image_h': image_h,
+        'image_w': image_w
+    }
+
+    if not os.path.exists('hyperparameters'):
+        os.mkdir('hyperparameters')
+
+    with open(f'hyperparameters/{name}.json', 'w') as file:
+        json.dump(variables, file)
+
+
+
 def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epochs=50, latent_dim=64, criterion=nn.MSELoss(), name=None, contrastive_weight=0.01, contrastive_loss=False, visualise=True, channels=[32, 64, 128, 256, 512], kld_weight=1, recon_weight=1, verbose=True, image_h=1024, image_w=384, cyclic_lr=False, kernel_sizes=None, strides=None, batch_norm=False, sigma=None, finetune=False):
     # print(f'Training {name}')
 
@@ -601,7 +692,6 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
 
             if type(batch) is dict:
                 spectrograms = batch['spectrogram'].to(device)
-                labels = batch['label'].to(device)
             else:
                 spectrograms = batch[0].to(device)
                 labels = batch[1].to(device)
@@ -614,13 +704,13 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
             z = vae.reparameterise(mu, logvar)
             features = z.unsqueeze(1).repeat(1, 2, 1).to(device)  # SupConLoss expects features with an extra dimension
 
-            supcon_loss_value = sup_con_loss(features, labels=labels) * contrastive_weight if contrastive_loss else 0
+            #  = sup_con_loss(features, labels=labels) * contrastive_weight if contrastive_loss else 0
 
             #print(recon_loss)
             #print(kld_loss)
             #print(supcon_loss_value)
 
-            loss = recon_loss + kld_loss + supcon_loss_value
+            loss = recon_loss + kld_loss
 
             loss.backward()
             optimiser.step()
@@ -645,10 +735,8 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
 
                 if type(batch) is dict:
                     spectrograms = batch['spectrogram'].to(device)
-                    labels = batch['label'].to(device)
                 else:
                     spectrograms = batch[0].to(device)
-                    labels = batch[1].to(device)
 
                 recon, mu, logvar = vae(spectrograms.float())
                 recon_loss = criterion(recon.float(), spectrograms.float()) * recon_weight
@@ -656,9 +744,8 @@ def train_vae(data_loader_train, data_loader_val, lr=1e-3, use_blocks=False, epo
 
                 z = vae.reparameterise(mu, logvar)
                 features = z.unsqueeze(1).repeat(1, 2, 1).to(device)
-                supcon_loss_value = sup_con_loss(features, labels=labels) * contrastive_weight if contrastive_loss else 0
 
-                loss = recon_loss + kld_loss + supcon_loss_value
+                loss = recon_loss + kld_loss
                 val_loss += loss.item()
                 epoch_val_sdr += -torch.log(recon_loss)
                 epoch_recon_loss += criterion(recon.float(), spectrograms.float()) / len(batch)
@@ -864,40 +951,61 @@ class SimpleFCN(nn.Module):
 
 
 class VideoModel(nn.Module):
-    def __init__(self):
+    def __init__(self, z_dim_2d, z_dim_3d, vae=None):
         super(VideoModel, self).__init__()
 
         self.model_raft = raft_small(weights=Raft_Small_Weights.DEFAULT)
         self.model_raft.eval()
 
-        resnet_3d = models.video.r3d_18(pretrained=True)
+        resnet_3d = models.video.r3d_18(weights=R3D_18_Weights.DEFAULT)
         resnet_3d.stem[0] = nn.Conv3d(2, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
 
-        self.vae_resnet_3d = ResNetVAE(resnet_3d, 32)
+        self.vae_resnet_3d = ResNetVAE(resnet_3d, z_dim_3d)
 
-        resnet_2d = models.resnet18(pretrained=False)
-        resnet_2d.conv1 = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False)
+        if not vae:
+            resnet_2d = models.resnet18(weights=None)
+            resnet_2d.conv1 = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False)
 
-        self.vae_resnet_2d = ResNetVAE(resnet_2d, latent_dim=32)
+            self.vae_resnet_2d = ResNetVAE(resnet_2d, latent_dim=z_dim_2d)
+        else:
+            assert vae.latent_dim == z_dim_2d
 
-        self.fc = SimpleFCN(input_size=self.vae_resnet_3d.latent_dim + self.vae_resnet_2d.latent_dim,
-                       hidden_size=(self.vae_resnet_3d.latent_dim + self.vae_resnet_2d.latent_dim) // 2)
+            self.vae_resnet_2d = vae
+
+        self.fc = SimpleFCN(input_size=z_dim_2d + z_dim_3d,
+                       hidden_size=(z_dim_2d + z_dim_3d) // 2)
 
     def get_optical_flows(self, video):
-        optical_flows = []
+        # optical_flows = []
 
-        num_frames = video.shape[1]
+        batch_size, num_frames, channels, height, width = video.shape
 
-        for i in range(num_frames - 1):
-            optical_flow = self.model_raft(video[:, i, :, :, :], video[:, i + 1, :, :, :])
-            optical_flows.append(optical_flow[-1].detach().cpu())
+        video1 = video[:, :-1, :, :, :]  # Shape: (batch_size, num_frames-1, channels, height, width)
+        video2 = video[:, 1:, :, :, :] # Shape: (batch_size, num_frames-1, channels, height, width)
+
+        video1 = video1.reshape(-1, channels, height,
+                                width)  # Shape: (batch_size*(num_frames-1), channels, height, width)
+        video2 = video2.reshape(-1, channels, height,
+                                width)  # Shape: (batch_size*(num_frames-1), channels, height, width)
+
+        optical_flow = self.model_raft(video1, video2)
+
+        optical_flow = optical_flow[-1].detach().cpu()
+
+        optical_flow = optical_flow.reshape(batch_size, num_frames - 1, *optical_flow.shape[1:])
+
+        # print(optical_flow.shape)
+
+        # for i in range(num_frames - 1):
+        #     optical_flow = self.model_raft(video[:, i, :, :, :], video[:, i + 1, :, :, :])
+        #     optical_flows.append(optical_flow[-1].detach().cpu())
 
             # each output: (batch_size, 2, h, w)
 
-        optical_flows = torch.stack(optical_flows, dim=1)
-        optical_flows = optical_flows.permute(0, 2, 1, 3, 4).to(device)
+        # optical_flow = torch.stack(optical_flow, dim=1)
+        optical_flow = optical_flow.permute(0, 2, 1, 3, 4).to(device)
 
-        return optical_flows
+        return optical_flow
 
     def get_latent_representation(self, video, spectrograms):
         optical_flows = self.get_optical_flows(video)
@@ -915,18 +1023,21 @@ class VideoModel(nn.Module):
 
         return self.fc(z), mu_2d, log_var_2d, mu_3d, log_var_3d
 
-def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose=True):
-    model = VideoModel().to(device)
+def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose=True, name=None, z_dim_2d=64, z_dim_3d=64):
+    model = VideoModel(z_dim_2d, z_dim_3d).to(device)
     optimiser = torch.optim.Adam(model.parameters(), lr=lr)
 
     criterion = BCELoss()
 
     best_val_loss = float('inf')
 
+    train_losses, train_accuracies, val_losses, val_accuracies = [], [], [], []
+
     for epoch in range(epochs):
-        print(f'epoch {epoch+1}')
         model.train()
         train_loss = 0
+        train_correct = 0
+        train_samples = 0
         for idx, batch in enumerate(data_loader_train):
             optimiser.zero_grad()
 
@@ -935,9 +1046,8 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
             y = batch['label'].to(device)
 
             y_hat, mu_2d, log_var_2d, mu_3d, log_var_3d = model(video, spectrograms)
-            y_hat = y_hat.squeeze()
 
-            loss_recon = criterion(y_hat, y)
+            loss_recon = criterion(y_hat.squeeze(), y.squeeze())
 
             loss_kl_1 = -0.5 * torch.mean(1 + log_var_2d - mu_2d.pow(2) - log_var_2d.exp())
             loss_kl_2 = -0.5 * torch.mean(1 + log_var_3d - mu_3d.pow(2) - log_var_3d.exp())
@@ -949,41 +1059,75 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
 
             train_loss += loss.item()
 
+            predicted = (y_hat >= 0.5).float()
+            correct = (predicted == y).sum().item()
+            train_correct += correct
+            train_samples += y.size(0)
+
+            del spectrograms, video, y, y_hat, mu_2d, log_var_2d, mu_3d, log_var_3d, loss_kl_1, loss_kl_2, loss
+            torch.cuda.empty_cache()
+
         avg_train_loss = train_loss / len(data_loader_train.dataset)
+        train_accuracy = train_correct / train_samples
 
         val_loss = 0
         model.eval()
         with torch.no_grad():
+            val_samples = 0
+            val_correct = 0
             for batch in data_loader_val:
                 spectrograms = batch['sources'].to(device)
                 video = batch['video'].to(device)
                 y = batch['label'].to(device)
 
                 y_hat, mu_2d, log_var_2d, mu_3d, log_var_3d = model(video, spectrograms)
-                y_hat = y_hat.squeeze()
 
-                loss_recon = criterion(y_hat, y)
+                loss_recon = criterion(y_hat.squeeze(), y.squeeze())
 
                 loss_kl_1 = -0.5 * torch.mean(1 + log_var_2d - mu_2d.pow(2) - log_var_2d.exp())
                 loss_kl_2 = -0.5 * torch.mean(1 + log_var_3d - mu_3d.pow(2) - log_var_3d.exp())
 
                 loss = loss_recon + loss_kl_1 + loss_kl_2
 
-                loss.backward()
-
                 val_loss += loss.item()
 
+                predicted = (y_hat >= 0.5).float()
+                correct = (predicted == y).sum().item()
+                val_correct += correct
+                val_samples += y.size(0)
+
+                del spectrograms, video, y
+                torch.cuda.empty_cache()
+
         avg_val_loss = val_loss / len(data_loader_val.dataset)
+        val_accuracy = val_correct / val_samples
 
         if verbose:
             print(
-                f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+                f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f} Acc: {(train_accuracy*100):.4f}%, Val Loss: {avg_val_loss:.4f}, Acc: {(val_accuracy*100):.4f}%")
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            # best_model = vae
+            best_model = model
 #
-            # if name:
-            #     torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
-            #     print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
+            if name:
+                torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
+                export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, data_loader_train.dataset.video_h, data_loader_train.dataset.video_w, data_loader_train.dataset.image_h, data_loader_train.dataset.image_w)
+                print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
 
+        train_losses.append(avg_train_loss)
+        train_accuracies.append(train_accuracy)
+        val_losses.append(avg_val_loss)
+        val_accuracies.append(val_accuracies)
+
+        with open(f'results/{name}_train_losses.pkl', 'wb') as f:
+            pickle.dump(train_losses, f)
+
+        with open(f'results/{name}_train_accuracies.pkl', 'wb') as f:
+            pickle.dump(train_accuracies, f)
+
+        with open(f'results/{name}_val_losses.pkl', 'wb') as f:
+            pickle.dump(val_losses, f)
+
+        with open(f'results/{name}_val_accuracies.pkl', 'wb') as f:
+            pickle.dump(val_accuracies, f)

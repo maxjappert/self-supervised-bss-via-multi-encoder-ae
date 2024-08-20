@@ -5,15 +5,17 @@ import torch
 from torch.nn import MSELoss
 from torch.utils.data import DataLoader
 
-from functions_prior import PriorDataset, train_vae
+from functions_prior import PriorDataset, train_vae, PriorDatasetVideo
 
-def train_class_vaes(name: str, stem: int):
+def collate_fn(batch):
+  return {
+      'spectrogram': torch.stack([x['spectrogram'] for x in batch]),
+  }
+
+def train_video_vae(name: str, stem: str):
 
     hps_opti_toy = {'latent_dim': 12, 'depth': 3, 'num_channels': 12, 'stride_ends': 1, 'stride_middle': 2, 'kernel_size': 7, 'batch_norm': False}
     hps_opti_musdb = {'latent_dim': 40, 'depth': 2, 'num_channels': 12, 'stride_ends': 2, 'stride_middle': 1, 'kernel_size': 5, 'batch_norm': False}
-
-    hps_opti = hps_opti_toy if name.__contains__('toy') else hps_opti_musdb
-
     # parser = argparse.ArgumentParser(
     #                     prog='ProgramName',
     #                     description='What the program does',
@@ -30,48 +32,43 @@ def train_class_vaes(name: str, stem: int):
     image_h = 64
     image_w = 64
 
-    batch_size = 256
+    batch_size = 128
 
-    dataset_name = 'toy_dataset' if name.__contains__('toy') else 'musdb_18_prior'
+    dataset_train = PriorDatasetVideo('train', debug=False, image_h=image_h, image_w=image_w, stem_type=stem)
+    dataset_val = PriorDatasetVideo('val', debug=False, image_h=image_h, image_w=image_w, stem_type=stem)
 
-    dataset_train = PriorDataset('train', debug=False, name=dataset_name, image_h=image_h, image_w=image_w, stem_type=int(stem))
-    dataset_val = PriorDataset('val', debug=False, name=dataset_name, image_h=image_h, image_w=image_w, stem_type=int(stem))
+    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate_fn)
+    dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate_fn)
 
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=12)
-    dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=12)
-
-    appendix = f'_stem{stem}' if stem is not None else ''
-
-    num_channels = hps_opti['num_channels']
-    depth = hps_opti['depth']
-
-    channels = [num_channels**i for i in range(1, depth+1)]
-
-    strides = []
-
-    for i in range(depth):
-        if i == 0 or i == depth - 1:
-            strides.append(hps_opti['stride_ends'])
-        else:
-            strides.append(hps_opti['stride_middle'])
+    appendix = f'_{stem}' if stem is not None else ''
 
     train_vae(dataloader_train,
               dataloader_val,
-              strides=strides,
+              strides=[1, 1, 1],
               lr=0.001,
-              kernel_sizes=[hps_opti['kernel_size'] for _ in range(depth)],
-              channels=channels,
+              kernel_sizes=[3, 3, 3],
+              channels=[8, 16, 32],
               name=name + appendix,
               criterion=MSELoss(),
               epochs=500,
-              latent_dim=hps_opti['latent_dim'],
+              latent_dim=32,
               visualise=True,
               image_h=image_h,
               image_w=image_w,
-              batch_norm=hps_opti['batch_norm'],
+              batch_norm=False,
               recon_weight=10)
 
-train_class_vaes('musdb_opti', int(sys.argv[1]))
+train_video_vae(sys.argv[1], sys.argv[1])
+
+# train_video_vae('vn, 'vn')
+# train_video_vae('vc', 'vc')
+# train_video_vae('fl', 'fl')
+# train_video_vae('cl', 'cl')
+# train_video_vae('tp', 'tp')
+# train_video_vae('tb', 'tb')
+# train_video_vae('sax','sax')
+# train_video_vae('ob', 'ob')
+
 
 # train_vae(dataloader_train,
 #           dataloader_val,

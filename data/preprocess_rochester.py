@@ -14,7 +14,7 @@ from audio_spectrogram_conversion_functions import audio_to_spectrogram
 
 sr = 22050
 
-def process_video(video_path, audio_sources, name, indices, chunk_duration=5):
+def process_video(video_path, audio_sources, name, indices, source_names, chunk_duration=5):
     # Create output directories if they don't exist
     # os.makedirs(output_dir, exist_ok=True)
 
@@ -63,7 +63,7 @@ def process_video(video_path, audio_sources, name, indices, chunk_duration=5):
 
             # Save spectrogram
             # spectrogram_path = os.path.join(output_dir, f'spectrogram_{source.name}_{start_time}-{end_time}.png')
-            audio_to_spectrogram(audio_chunk, f's{i+1}', save_to_file=True, dest_folder=Path(output_dir), sr=22050)
+            audio_to_spectrogram(audio_chunk, f's{i+1}_{source_names[i]}', save_to_file=True, dest_folder=Path(output_dir), sr=22050)
 
 
 # def main(input_dir, output_dir, audio_sources):
@@ -120,5 +120,7 @@ if __name__ == "__main__":
             audio_sources = [librosa.load(source_paths[combination[0]], sr=sr)[0], librosa.load(source_paths[combination[1]], sr=sr)[0]]
             # librosa.load(audio_path, sr=None)
 
-            process_video(video_path, audio_sources, datapoint, combination)
+            source_names = [source_shorts[combination[0]], source_shorts[combination[1]]]
+
+            process_video(video_path, audio_sources, datapoint, combination, source_names)
 

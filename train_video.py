@@ -10,12 +10,14 @@ def collate_fn(batch):
       'label': torch.tensor([x['label'] for x in batch])
   }
 
-dataset_train = MultiModalDataset('train')
-dataset_val = MultiModalDataset('val')
+debug = False
 
-batch_size = 2
+dataset_train = MultiModalDataset('train', debug=debug)
+dataset_val = MultiModalDataset('val', debug=debug)
 
-dataloader_train = DataLoader(dataset_train, batch_size=batch_size, num_workers=4, collate_fn=collate_fn)
-dataloader_val = DataLoader(dataset_val, batch_size=batch_size, num_workers=4, collate_fn=collate_fn)
+batch_size = 1
 
-train_video(dataloader_train, dataloader_val)
+dataloader_train = DataLoader(dataset_train, batch_size=batch_size, num_workers=8, collate_fn=collate_fn)
+dataloader_val = DataLoader(dataset_val, batch_size=batch_size, num_workers=8, collate_fn=collate_fn)
+
+train_video(dataloader_train, dataloader_val, lr=1e-04, name='video_model')
