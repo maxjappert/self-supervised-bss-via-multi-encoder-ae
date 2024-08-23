@@ -1,7 +1,9 @@
 import os
 import sys
 
-basename = 'sigma_toy_stem3' # sys.argv[1]
+basename = 'musdb_stem1' # sys.argv[1]
+
+print(basename)
 
 index_range = []
 

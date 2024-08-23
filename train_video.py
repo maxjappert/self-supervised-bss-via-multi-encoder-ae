@@ -12,12 +12,26 @@ def collate_fn(batch):
 
 debug = False
 
-dataset_train = MultiModalDataset('train', debug=debug)
-dataset_val = MultiModalDataset('val', debug=debug)
+if debug:
+    print('DEBUG MODE ACTIVATED')
+
+dataset_train = MultiModalDataset('train', debug=debug, fps=15)
+dataset_val = MultiModalDataset('val', debug=debug, fps=15)
 
 batch_size = 1
 
-dataloader_train = DataLoader(dataset_train, batch_size=batch_size, num_workers=8, collate_fn=collate_fn)
-dataloader_val = DataLoader(dataset_val, batch_size=batch_size, num_workers=8, collate_fn=collate_fn)
+dataloader_train = DataLoader(dataset_train, batch_size=batch_size, num_workers=20, collate_fn=collate_fn)
+dataloader_val = DataLoader(dataset_val, batch_size=batch_size, num_workers=20, collate_fn=collate_fn)
 
-train_video(dataloader_train, dataloader_val, lr=1e-04, name='video_model')
+train_video(dataloader_train, dataloader_val, lr=1e-04, name='video_model_raft_resnet', use_optical_flow=True, use_resnet=True, epochs=10)
+
+train_video(dataloader_train, dataloader_val, lr=1e-04, name='video_model_raft', use_optical_flow=True, use_resnet=False, epochs=10)
+
+train_video(dataloader_train, dataloader_val, lr=1e-04, name='video_model_resnet', use_optical_flow=False, use_resnet=True, epochs=10)
+
+batch_size = 4
+
+dataloader_train = DataLoader(dataset_train, batch_size=batch_size, num_workers=20, collate_fn=collate_fn)
+dataloader_val = DataLoader(dataset_val, batch_size=batch_size, num_workers=20, collate_fn=collate_fn)
+
+train_video(dataloader_train, dataloader_val, lr=1e-04, name='video_model_simple', use_optical_flow=False, use_resnet=False, epochs=10)

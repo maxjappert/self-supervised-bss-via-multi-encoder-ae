@@ -117,7 +117,7 @@ def create_pred_figure(stem_indices):
 
     separated = np.stack([separated_basis, nmf_recons, separated_bss, separated_bss_linear, separated_basis_finetuned, separated_basis_optimised])
 
-    fig, axs = plt.subplots(7, 3, figsize=(7, 10))
+    fig, axs = plt.subplots(6, 3, figsize=(6, 10))
 
     gt = [gt_m] + gt_xs
     titles = ['Mixture', 'Source 1', 'Source 2']
@@ -127,7 +127,7 @@ def create_pred_figure(stem_indices):
         axs[0, i].set_xticks([])
         axs[0, i].set_yticks([])
 
-    for row_idx in range(6):
+    for row_idx in range(5):
         images = [np.sum(separated[row_idx, :, :, :], axis=0), separated[row_idx, 0, :, :], separated[row_idx, 1, :, :]]
 
         for i in range(3):
@@ -143,7 +143,7 @@ def create_pred_figure(stem_indices):
     axs[3, 0].set_ylabel('AE-BSS')
     axs[4, 0].set_ylabel('Linear AE-BSS')
     axs[5, 0].set_ylabel('BASIS Finetuned')
-    axs[6, 0].set_ylabel('BASIS Optimised')
+    # axs[6, 0].set_ylabel('BASIS Optimised')
 
     # plt.tight_layout()
     plt.savefig(f'figures/separation_2s_{name_vae}_{stem_indices[0]}_{stem_indices[1]}.png')

@@ -48,7 +48,7 @@ def create_basis_confusion_matrix(model_name, num_samples_per_combo=128):
 
             for i in range(num_samples_per_combo):
                 print(i)
-                source1, source2 = separate(batch_combined[i], hps, name=model_name, sigma_end=0.5 if model_name.__contains__('toy') else 1.0, finetuned=True, visualise=False, verbose=False, k=2, constraint_term_weight=-18, stem_indices=[vae_idx1, vae_idx2])
+                source1, source2 = separate(batch_combined[i], hps, name=model_name, sigma_end=1.0, finetuned=False, visualise=False, verbose=False, k=2, constraint_term_weight=-18, stem_indices=[vae_idx1, vae_idx2])
                 separated_basis = np.array([source1.detach().cpu().view(-1), source2.detach().cpu().view(-1)])
                 gt = np.array([batch1[i].cpu().view(-1), batch2[i].cpu().view(-1)])
                 sdr, isr, sir, sar, _ = mir_eval.separation.bss_eval_images(separated_basis, gt)
@@ -56,6 +56,8 @@ def create_basis_confusion_matrix(model_name, num_samples_per_combo=128):
                 confusion_matrix[vae_idx1, vae_idx2] += sdr.mean()
 
             confusion_matrix[vae_idx1, vae_idx2] /= num_samples_per_combo
+
+    confusion_matrix = np.exp(confusion_matrix) / np.sum(np.exp(confusion_matrix), axis=1, keepdims=True)
 
     print(confusion_matrix)
 
@@ -67,3 +69,6 @@ def create_basis_confusion_matrix(model_name, num_samples_per_combo=128):
     sn.heatmap(df_cm, annot=False, annot_kws={"size": 16}) # font size
 
     plt.savefig(f'figures/confusion_matrix_basis_{model_name}.png')
+
+create_basis_confusion_matrix('toy_opti')
+create_basis_confusion_matrix('musdb_opti')

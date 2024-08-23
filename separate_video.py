@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 import random
 import sys
+from inspect import stack
 
 import mir_eval
 import numpy as np
@@ -14,6 +15,7 @@ from torchvision.utils import save_image
 import os
 
 from functions_prior import VAE, PriorDataset, finetune_sigma, train_vae, VideoModel
+from separate_new import get_vaes_rochester
 
 # Define the seed
 seed = 42
@@ -44,6 +46,14 @@ def extract_z(xz, stem_idx, x_dim, z_dim):
     start_idx = (stem_idx + 1) * x_dim + stem_idx * z_dim
     end_idx = start_idx + z_dim
     return xz[start_idx:end_idx]
+
+def extract_stacked_x(xz, x_dim, z_dim):
+    xs = []
+    for i in range(k):
+        x = extract_x(xz, i, x_dim, z_dim)
+        xs.append(x)
+
+    return torch.stack(xs)
 
 
 def minmax_normalise(tensor, min_value=0.0, max_value=1.0):
@@ -269,9 +279,9 @@ def log_p_s(model, video, xz, x_dim, z_dim, k):
     x_2c = [extract_x(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
     x_2c = torch.stack(x_2c, dim=0)
 
-    y_hat = model(video, x_2c)
+    p_logit = model(video, x_2c)
 
-    return torch.log(y_hat)
+    return torch.log(torch.sigmoid(p_logit))
 
 
 def separate_video(gt_m,
@@ -279,6 +289,7 @@ def separate_video(gt_m,
                    hps_stems,
                    hps_video,
                    video_model_name,
+                   stem_names,
                    L=10,
                    T=100,
                    alpha=1,
@@ -287,25 +298,23 @@ def separate_video(gt_m,
                    image_w=image_w,
                    sigma_start=0.1,
                    sigma_end=1.0,
-                   stem_indices=[0, 3],
-                   finetuned=True,
                    name=None,
                    visualise=False,
                    k=k, constraint_term_weight=1,
-                   verbose=True):
+                   verbose=True,
+                   video_weight=1):
 
     x_dim = image_h * image_w
 
-    z_dim_stems = hps_stems['hidden']
+    z_dim = hps_stems['hidden']
     # z_dim_video = hps_video['z_dim_2d'] + hps_video['z_dim_3d']
 
     # stem_indices = [0, 3]
     # gt_xs = [val_datasets[stem_index][random.randint(0, 100)]['spectrogram'] for stem_index in stem_indices]
 
-    gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim_stems).to(device)]).to(device)
+    gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim).to(device)]).to(device)
 
-    vaes_noisy = get_vaes(name, stem_indices, sigma=sigma_end if finetuned else None)
-    vaes_perfect = get_vaes(name, stem_indices)
+    vaes = get_vaes_rochester(stem_names)
 
     sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                             end=torch.log10(torch.tensor(sigma_end)),
@@ -320,16 +329,20 @@ def separate_video(gt_m,
 
     for i in range(k):
         noise_image = torch.rand(image_h, image_w).to(device)
-        mu, log_var = vaes_noisy[i].encode(noise_image.unsqueeze(dim=0).unsqueeze(dim=0))
-        z = vaes_noisy[i].reparameterise(mu, log_var)
+        mu, log_var = vaes[i].encode(noise_image.unsqueeze(dim=0).unsqueeze(dim=0))
+        z = vaes[i].reparameterise(mu, log_var)
         # z = torch.randn((1, z_dim)).to(device)
         xz.append(noise_image.view(-1))
         xz.append(z.view(-1))
 
+    s = video_model(video, extract_stacked_x(xz, x_dim, z_dim))
+
+    xz.append(s)
+
     # create a big flat vector
     xz = torch.cat(xz).to(device)
     xz.requires_grad_(True)
-    assert len(xz) == k * (x_dim + z_dim_stems)
+    assert len(xz) == k * (x_dim + z_dim) + 1
 
     # for i, x in enumerate(gt_xs):
     #     save_image(x, f'images/000_gt_stem_{i}_new.png')
@@ -345,17 +358,6 @@ def separate_video(gt_m,
         eta_i = delta * sigmas[i] ** 2 / sigmas[L - 1] ** 2
         sigma_vaes = []
 
-        if finetuned:
-            for stem_index in stem_indices:
-                    sigma_model_name = f'sigma_{name}_stem{stem_index + 1}_{np.round(sigmas[i].detach().item(), 3)}'
-                    vae = VAE(z_dim_stems, image_h=image_h, image_w=image_w, use_blocks=hps_stems['use_blocks'],
-                              channels=hps_stems['channels'], kernel_sizes=hps_stems['kernel_sizes'], strides=hps_stems['strides']).to(
-                        device)
-                    vae.load_state_dict(torch.load(f'checkpoints/{sigma_model_name}.pth', map_location=device))
-                    sigma_vaes.append(vae)
-        else:
-            sigma_vaes = vaes_perfect
-
         for t in range(T):
 
             epsilon_t = torch.randn(xz.shape, requires_grad=True).to(device)
@@ -365,19 +367,20 @@ def separate_video(gt_m,
 
             # elbo = vae.log_prob(xs[source_idx].unsqueeze(dim=0)).to(device)
             # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
-            log_p_x_z_s = (log_p_z(xz, x_dim=x_dim, z_dim=z_dim_stems, k=k)
-                           + log_p_x_given_z(sigma_vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim_stems, k=k)
-                           + log_p_s(video_model, video, xz, x_dim, z_dim_stems, k))
+            log_p_x_z_s = log_p_z(xz, x_dim=x_dim, z_dim=z_dim, k=k) + log_p_x_given_z(sigma_vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim, k=k)
+
+            if video is not None:
+                log_p_x_z_s += log_p_s(video_model, video, xz, x_dim, z_dim, k) * video_weight
 
             grad_log_p_x_z_s = torch.autograd.grad(log_p_x_z_s, xz, retain_graph=True, create_graph=True)[0]
 
             # print(eta_i)
             u = xz + eta_i * grad_log_p_x_z_s + torch.sqrt(2 * eta_i) * epsilon_t
-            constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim_stems)).float() * alpha
-            elongated_constraint_term = torch.cat([constraint_term for _ in range(k)]) * constraint_term_weight
+            constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim)).float() * alpha
+            elongated_constraint_term = torch.cat([constraint_term for _ in range(k)] + [0]) * constraint_term_weight
             xz = u - elongated_constraint_term  # minmax_rows(u - temp)
 
-            del epsilon_t, u, constraint_term, elongated_constraint_term, log_p_x_z, grad_log_p_x_z_s
+            del epsilon_t, u, constraint_term, elongated_constraint_term, log_p_x_z_s, grad_log_p_x_z_s
 
 
         xz_chain.append(xz.cpu())
@@ -398,7 +401,7 @@ def separate_video(gt_m,
     final_xs = []
 
     for i in range(k):
-        x = extract_x(final_xz, i, x_dim=x_dim, z_dim=z_dim_stems).view(image_h, image_w)
+        x = extract_x(final_xz, i, x_dim=x_dim, z_dim=z_dim).view(image_h, image_w)
         final_xs.append(x)
         if visualise:
             save_image(x, f'images/000_recon_stem_{i + 1}_new.png')
@@ -407,68 +410,14 @@ def separate_video(gt_m,
         m_recon = g(final_xs)
         save_image(m_recon, 'images/000_m_recon_new.png')
 
-    final_samples = [vaes_perfect[stem_idx].decode(extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim_stems).unsqueeze(dim=0)) for stem_idx in range(k)]
-    final_xs = [extract_x(xz, stem_idx, x_dim=x_dim, z_dim=z_dim_stems) for stem_idx in range(k)]
-    final_zs = [extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim_stems) for stem_idx in range(k)]
+    final_samples = [vaes[stem_idx].decode(extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim).unsqueeze(dim=0)) for stem_idx in range(k)]
+    final_xs = [extract_x(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
+    final_zs = [extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
     # print(final_zs)
 
     # clear memory from gpu
-    del xz_chain, xz, gt_m_xz, sigmas, gt_m, vaes_noisy, vaes_perfect
+    del xz_chain, xz, gt_m_xz, sigmas, gt_m, vaes
 
     return final_xs
 
-
-def evaluate_basis_ability(T, L, alpha, sigma_start, sigma_end, delta, recon_weight, image_h=64, image_w=64, num_samples=32, name_vae='toy', finetuned=False):
-    hps_vae = json.load(open(f'hyperparameters/{name_vae}_stem1.json'))
-
-    dataset_name = 'toy_dataset' if name_vae.__contains__('toy') else 'musdb_18_prior'
-
-    val_datasets = [
-        PriorDataset('val', image_h=image_h, image_w=image_w, name=dataset_name, num_stems=4, debug=debug,
-                     stem_type=i + 1)
-        for i in range(4)]
-
-    total_sdr = 0
-
-    for i in range(num_samples):
-        stem_indices = [random.randint(0, 3), random.randint(0, 3)] # [0, 3]
-        vaes = get_vaes(name_vae, stem_indices)
-        now = datetime.now()
-        timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        # print(f'[{timestamp_str}]  Processing {i+1}/{num_samples}')
-        # to avoid, when the same stem is selected, the same sample
-        gt_data = [val_datasets[stem_index][i + j] for j, stem_index in enumerate(stem_indices)]
-        gt_xs = [data['spectrogram'] for data in gt_data]
-
-        gt_m = torch.sum(torch.cat(gt_xs) / len(stem_indices), dim=0).to(device)
-
-        # separate using basis
-        separated_basis = separate(gt_m,
-                                   hps_vae,
-                                   name=name_vae,
-                                   stem_indices=stem_indices,
-                                   finetuned=finetuned,
-                                   alpha=alpha,
-                                   visualise=False,
-                                   verbose=False,
-                                   constraint_term_weight=recon_weight,
-                                   L=L, T=T,
-                                   sigma_start=sigma_start,
-                                   sigma_end=sigma_end,
-                                   delta=delta)
-        separated_basis = [x_i.detach().cpu() for x_i in separated_basis]
-
-        gt_m = gt_m.cpu()
-
-        gt_xs = np.array([x.squeeze().view(-1) for x in gt_xs])
-
-        print('starting')
-        sdr, isr, sir, sar, _ = mir_eval.separation.bss_eval_images(gt_xs, separated_basis)
-        print('done')
-
-        total_sdr += sdr.mean()
-
-        torch.cuda.empty_cache()
-
-    return total_sdr / num_samples
 

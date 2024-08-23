@@ -11,7 +11,7 @@ import seaborn as sn
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-model_name = 'toy_opti'
+model_name = 'musdb_opti'
 dataset_name = 'toy_dataset' if model_name.__contains__('toy') else 'musdb_18_prior'
 image_h = 64
 image_w = 64

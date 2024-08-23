@@ -1,4 +1,5 @@
 import datetime
+import glob
 import json
 import math
 import os
@@ -22,6 +23,7 @@ from torchvision.io import read_video
 from torchvision.models import ResNet18_Weights
 from torchvision.models.optical_flow import Raft_Large_Weights, raft_large, raft_small, Raft_Small_Weights
 from torchvision.models.video import R3D_18_Weights
+from torchvision.utils import save_image
 
 from models.cnn_ae_2d_spectrograms import *
 
@@ -32,7 +34,7 @@ from new_vae import NewVAE
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class MultiModalDataset(Dataset):
-    def __init__(self, split, image_h=64, image_w=64, video_h=128, video_w=128, debug=False):
+    def __init__(self, split, image_h=64, image_w=64, video_h=128, video_w=256, debug=False, fps=15):
         self.video_master_path = os.path.join('data', 'rochester_preprocessed', split)
         self.datapoints = os.listdir(self.video_master_path) if not debug else os.listdir(self.video_master_path)[::40]
 
@@ -41,18 +43,20 @@ class MultiModalDataset(Dataset):
         self.image_h = image_h
         self.image_w = image_w
 
+        self.fps = fps
+
         self.video_transforms = transforms.Compose([
             # transforms.ToPILImage(),  # Ensure this if the input is a NumPy array
             transforms.Resize((video_h, video_w)),
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
+            # transforms.ToTensor(),
+            # transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
         ])
 
         self.image_transforms = transforms.Compose([
             # transforms.ToPILImage(),  # Ensure this if the input is a NumPy array
             transforms.Resize((image_h, image_w)),
             transforms.ToTensor(),
-            transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
+            # transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
         ])
 
         self.debug = debug
@@ -70,7 +74,7 @@ class MultiModalDataset(Dataset):
         :return: The normalised output in [0, 1].
         """
         #return x
-        normalised = (x - np.min(x)) / (np.max(x) - np.min(x))
+        normalised = (x - torch.min(x)) / (torch.max(x) - torch.min(x))
         return normalised
 
 
@@ -86,22 +90,32 @@ class MultiModalDataset(Dataset):
 
         transformed_frames = []
 
-        to_pil = transforms.ToPILImage()
-        to_tensor = transforms.ToTensor()
+        skips = math.floor(30 / self.fps)
+        new_num_frames = 150 // skips
+
         for frame_idx in range(video_tensor.shape[0]):
-            frame = video_tensor[frame_idx]
-            frame = self.video_transforms(frame).float()  # Apply the defined transformations
-#             # print(frame.shape)
-            transformed_frames.append(frame)
+            # for computing new framerate
+            if frame_idx % skips == 0:
+                frame = video_tensor[frame_idx]
+                # cut off the black bit
+                frame = frame[:, 500:900, :]
+                # save_image(self.min_max(frame),'images/0000000.png' )
+                # image = transforms.ToPILImage()(frame)
+                # image.save(f'images/0000000{frame_idx}.png')
+                # print('saved')
+                frame = self.video_transforms(frame).float()  # Apply the defined transformations
+                frame = self.min_max(frame)
+                transformed_frames.append(frame)
+
 
         video_tensor = torch.stack(transformed_frames, dim=0)
 
         # (num_frames, 3, h, w)
 
         num_frames = video_tensor.shape[0]
-        if num_frames < 150:
+        if num_frames < new_num_frames:
             # Calculate how many frames to add
-            frames_to_add = 150 - num_frames
+            frames_to_add = new_num_frames - num_frames
 
             # Create black frames with the same shape as existing frames (C, H, W)
             black_frame = torch.zeros((self.video_h, self.video_w, 3)).permute(2, 0, 1)  # (C, H, W)
@@ -111,14 +125,15 @@ class MultiModalDataset(Dataset):
             video_tensor = torch.cat([video_tensor, black_frames], dim=0)
 
         # (num_frames, 3, h, w)
-        assert video_tensor.shape[0] == 150, "Video tensor should have exactly 150 frames after padding."
+        assert video_tensor.shape[0] == new_num_frames, f"Video tensor should have exactly {new_num_frames} frames with fps of {self.fps}."
+
 
         if idx % 2 == 0:
+            png_files = glob.glob(f'{filename}/*.png')
             # this means the video matches the audio
             label = 1
-            source_files = [os.path.join(filename, f's{i+1}.png') for i in range(2)]
+            source_files = [png_files[i] for i in range(2)]
             # order shouldn't matter
-            random.shuffle(source_files)
         else:
             # this means the video and audio don't match
             label = 0
@@ -126,21 +141,30 @@ class MultiModalDataset(Dataset):
             filename2 = os.path.join(self.video_master_path, self.datapoints[random.randint(0, len(self.datapoints)-1)])
             filenames = [filename1, filename2]
 
-            source_files = [os.path.join(filenames[i], f's{i+1}.png') for i in range(2)]
+            png_files1 = glob.glob(f'{filename1}/*.png')
+            png_files2 = glob.glob(f'{filename2}/*.png')
+            png_files = [png_files1, png_files2]
+
+            source_files = [png_files[i][i] for i in range(2)]
+
+        random.shuffle(source_files)
 
         spectrograms = [Image.open(source_files[i]).convert('L') for i in range(2)]
         # spectrograms = [self.min_max(spectrograms[i]) for i in range(2)]
-        spectrograms = [self.image_transforms(spectrograms[i]).squeeze() for i in range(2)]
+        spectrograms = [self.min_max(self.image_transforms(spectrograms[i]).squeeze()) for i in range(2)]
         # spectrograms = [torch.tensor(spectrograms[i]) for i in range(2)]
         spectrograms = torch.stack(spectrograms, dim=0)
 
         #print(spectrogram.min())
         #print(spectrogram.max())
 
+        stem_names = [file[3:5] for file in source_files]
+
         return {
                 'video': video_tensor,
                 'sources': spectrograms,
-                'label': torch.tensor(label, dtype=torch.float32)
+                'label': torch.tensor(label, dtype=torch.float32),
+                'stem_names': stem_names
                }
 
 class ResNetClassifier(nn.Module):
@@ -382,6 +406,92 @@ def compute_size(size, num_layers, stride, kernel_size, padding):
 
     return size
 
+
+class DeterministicAE(nn.Module):
+    def __init__(self, latent_dim=64, channels=[8, 16, 32], use_blocks=False, image_h=64, image_w=64,
+                 kernel_sizes=None, strides=None, batch_norm=False):
+        super(DeterministicAE, self).__init__()
+
+        self.image_h = image_h
+        self.image_w = image_w
+
+        if kernel_sizes is None:
+            kernel_sizes = [3] * len(channels)
+
+        if strides is None:
+            strides = [1] * len(channels)
+
+        assert len(channels) == len(strides) == len(kernel_sizes)
+
+        if channels[0] != 1:
+            channels = [2] + channels
+
+        self.channels = channels
+
+        self.encoder = nn.Sequential()
+        for c_i in range(len(channels) - 1):
+            if use_blocks:
+                self.encoder.append(
+                    EncoderBlock(channels[c_i], channels[c_i + 1], kernel_size=kernel_sizes[c_i], stride=strides[c_i]))
+            else:
+                self.encoder.append(
+                    nn.Conv2d(channels[c_i], channels[c_i + 1], kernel_size=kernel_sizes[c_i], stride=strides[c_i],
+                              padding=(kernel_sizes[c_i] - 1) // 2))
+
+                if batch_norm:
+                    self.encoder.append(nn.BatchNorm2d(channels[c_i + 1]))
+
+                self.encoder.append(nn.ReLU())
+
+        dummy_encoded = self.encoder(torch.zeros((1, 2, image_h, image_w)))
+        self.compressed_size_h = dummy_encoded.shape[2]
+        self.compressed_size_w = dummy_encoded.shape[3]
+
+        num_output_features = channels[-1] * self.compressed_size_h * self.compressed_size_w
+
+        self.fc_latent = nn.Linear(num_output_features, latent_dim)
+        self.decoder_fc = nn.Linear(latent_dim, num_output_features)
+
+        self.decoder = nn.Sequential()
+        for c_i in reversed(range(1, len(channels))):
+            if use_blocks:
+                self.decoder.append(
+                    DecoderBlock(channels[c_i], channels[c_i - 1], c_i, 'none', len(channels), image_h, image_w,
+                                 kernel_size=kernel_sizes[c_i - 1], stride=strides[c_i - 1]))
+            else:
+                self.decoder.append(
+                    nn.ConvTranspose2d(channels[c_i], channels[c_i - 1], kernel_size=kernel_sizes[c_i - 1],
+                                       stride=strides[c_i - 1], padding=(kernel_sizes[c_i - 1] - 1) // 2))
+
+                if c_i > 1:
+                    if batch_norm:
+                        self.decoder.append(nn.BatchNorm2d(channels[c_i - 1]))
+                    self.decoder.append(nn.ReLU())
+                else:
+                    self.decoder.append(nn.Sigmoid())
+
+    def encode(self, x):
+        encoded = self.encoder(x)
+        encoded_flat = encoded.flatten(start_dim=1, end_dim=-1)
+        latent = self.fc_latent(encoded_flat)
+        return latent
+
+    def decode(self, z):
+        h = self.decoder_fc(z)
+        h = h.view(h.size(0), self.channels[-1], self.compressed_size_h,
+                   self.compressed_size_w)  # Reshape for the convolutional layers
+        h = self.decoder(h)
+        return transforms.Resize((self.image_h, self.image_w))(h)
+
+    def forward(self, x):
+        z = self.encode(x)
+        return z# self.decode(z)
+
+    def loss_function(self, x, recon):
+        loss_fn = MSELoss(reduction='sum')
+        return loss_fn(recon, x) / x.size(0)
+
+
 # Define the VAE
 class VAE(nn.Module):
     def __init__(self, latent_dim=64, channels=[32, 64, 128, 256, 512], use_blocks=True, image_h=1024, image_w=384, kernel_sizes=None, strides=None, batch_norm=False):
@@ -504,7 +614,6 @@ class LatentClassifier(nn.Module):
     def forward(self, z):
         x = torch.relu(self.fc1(z))
         x = torch.relu(self.fc2(x))
-        ddd = self.fc3(x)
         x = torch.softmax(self.fc3(x), dim=1)
 
         return x
@@ -894,9 +1003,9 @@ def test_vae(vae, dataset, num_samples=64):
     return total_sdr / num_samples
 
 
-class ResNetVAE(nn.Module):
+class ResNetAE(nn.Module):
     def __init__(self, original_resnet, latent_dim):
-        super(ResNetVAE, self).__init__()
+        super(ResNetAE, self).__init__()
 
         # Retain all layers except the final fully connected layer
         self.resnet = nn.Sequential(*list(original_resnet.children())[:-1])
@@ -951,28 +1060,31 @@ class SimpleFCN(nn.Module):
 
 
 class VideoModel(nn.Module):
-    def __init__(self, z_dim_2d, z_dim_3d, vae=None):
+    def __init__(self, z_dim_2d, z_dim_3d, use_optical_flow=False, use_resnet=False):
         super(VideoModel, self).__init__()
 
-        self.model_raft = raft_small(weights=Raft_Small_Weights.DEFAULT)
-        self.model_raft.eval()
+        if use_optical_flow:
+            self.model_raft = raft_small(weights=Raft_Small_Weights.DEFAULT)
+            self.model_raft.eval()
 
         resnet_3d = models.video.r3d_18(weights=R3D_18_Weights.DEFAULT)
-        resnet_3d.stem[0] = nn.Conv3d(2, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+        resnet_3d.stem[0] = nn.Conv3d(2 if use_optical_flow else 3, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
 
-        self.vae_resnet_3d = ResNetVAE(resnet_3d, z_dim_3d)
+        self.vae_resnet_3d = ResNetAE(resnet_3d, z_dim_3d)
 
-        if not vae:
+        if use_resnet:
             resnet_2d = models.resnet18(weights=None)
             resnet_2d.conv1 = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False)
 
-            self.vae_resnet_2d = ResNetVAE(resnet_2d, latent_dim=z_dim_2d)
+            self.ae_2d = ResNetAE(resnet_2d, latent_dim=z_dim_2d)
         else:
-            assert vae.latent_dim == z_dim_2d
+            self.ae_2d = DeterministicAE(latent_dim=z_dim_2d, channels=[8, 16, 32],
+                                         kernel_sizes=[3, 3, 3], strides=[1, 1, 1],
+                                         use_blocks=False, image_h=64, image_w=64)
 
-            self.vae_resnet_2d = vae
+        self.use_optical_flow = use_optical_flow
 
-        self.fc = SimpleFCN(input_size=z_dim_2d + z_dim_3d,
+        self.fc = SimpleFCN(input_size= z_dim_2d + z_dim_3d,
                        hidden_size=(z_dim_2d + z_dim_3d) // 2)
 
     def get_optical_flows(self, video):
@@ -1003,16 +1115,22 @@ class VideoModel(nn.Module):
             # each output: (batch_size, 2, h, w)
 
         # optical_flow = torch.stack(optical_flow, dim=1)
-        optical_flow = optical_flow.permute(0, 2, 1, 3, 4).to(device)
+        optical_flow = optical_flow.permute(0, 2, 1, 3, 4)
 
         return optical_flow
 
     def get_latent_representation(self, video, spectrograms):
-        optical_flows = self.get_optical_flows(video)
 
-        z_3d, mu_3d, log_var_3d = self.vae_resnet_3d(optical_flows)
+        if self.use_optical_flow:
+            optical_flows = self.get_optical_flows(video).to(device)
 
-        z_2d, mu_2d, log_var_2d = self.vae_resnet_2d(spectrograms)
+            z_3d, mu_3d, log_var_3d = self.vae_resnet_3d(optical_flows)
+        else:
+            video = video.permute(0, 2, 1, 3, 4)
+
+            z_3d, mu_3d, log_var_3d = self.vae_resnet_3d(video)
+
+        z_2d, mu_2d, log_var_2d = self.ae_2d(spectrograms)
 
         z = torch.cat((z_2d, z_3d), dim=1)
 
@@ -1023,9 +1141,13 @@ class VideoModel(nn.Module):
 
         return self.fc(z), mu_2d, log_var_2d, mu_3d, log_var_3d
 
-def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose=True, name=None, z_dim_2d=64, z_dim_3d=64):
-    model = VideoModel(z_dim_2d, z_dim_3d).to(device)
+
+
+def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose=True, name=None, z_dim_2d=64, z_dim_3d=64, use_optical_flow=False, use_resnet=True):
+    model = VideoModel(z_dim_2d, z_dim_3d, use_optical_flow=use_optical_flow, use_resnet=use_resnet).to(device)
     optimiser = torch.optim.Adam(model.parameters(), lr=lr)
+
+    print(f'Training {name}')
 
     criterion = BCELoss()
 
@@ -1104,16 +1226,20 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
 
         if verbose:
             print(
-                f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f} Acc: {(train_accuracy*100):.4f}%, Val Loss: {avg_val_loss:.4f}, Acc: {(val_accuracy*100):.4f}%")
+                f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f} Acc: {(train_accuracy * 100):.4f}%, Val Loss: {avg_val_loss:.4f}, Acc: {(val_accuracy * 100):.4f}%")
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             best_model = model
-#
+            #
             if name:
                 torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
-                export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, data_loader_train.dataset.video_h, data_loader_train.dataset.video_w, data_loader_train.dataset.image_h, data_loader_train.dataset.image_w)
-                print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
+                export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, data_loader_train.dataset.video_h,
+                                                     data_loader_train.dataset.video_w,
+                                                     data_loader_train.dataset.image_h,
+                                                     data_loader_train.dataset.image_w)
+                print(
+                    f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
 
         train_losses.append(avg_train_loss)
         train_accuracies.append(train_accuracy)

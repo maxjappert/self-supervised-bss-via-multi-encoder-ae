@@ -230,6 +230,31 @@ def get_vaes(name, stem_indices, sigma=None):
 
     return vaes
 
+def get_vaes_rochester(names):
+    vaes = []
+
+    names = [f'{name}_{name}' for name in names]
+
+    for name in names:
+        hps = json.load(open(os.path.join('hyperparameters', f'{name}.json')))
+
+        vae = VAE(latent_dim=hps['hidden'],
+                          image_h=image_h,
+                          image_w=image_w,
+                          use_blocks=hps['use_blocks'],
+                          channels=hps['channels'],
+                          kernel_sizes=hps['kernel_sizes'],
+                          strides=hps['strides']).to(device)
+
+        # vae_name = f'{name}_stem{stem_index + 1}' if sigma is None else f'sigma_{name}_stem{stem_index + 1}_{sigma}'
+
+        # vae_name = f'{name}_stem{stem_type + 1}'
+        vae.load_state_dict(torch.load(f'checkpoints/{name}.pth', map_location=device))
+
+        vaes.append(vae)
+
+    return vaes
+
 
 def log_p_z(xz, x_dim, z_dim):
     total_log_prob = 0
