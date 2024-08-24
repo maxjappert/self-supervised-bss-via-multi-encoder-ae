@@ -298,11 +298,11 @@ def separate_video(gt_m,
                    image_w=image_w,
                    sigma_start=0.1,
                    sigma_end=1.0,
-                   name=None,
                    visualise=False,
                    k=k, constraint_term_weight=1,
                    verbose=True,
-                   video_weight=1):
+                   video_weight=1,
+                   device='cuda'):
 
     x_dim = image_h * image_w
 
