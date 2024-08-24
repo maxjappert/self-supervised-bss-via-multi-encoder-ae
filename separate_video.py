@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 import json
 import random
@@ -51,9 +52,10 @@ def extract_stacked_x(xz, x_dim, z_dim):
     xs = []
     for i in range(k):
         x = extract_x(xz, i, x_dim, z_dim)
+        x = torch.tensor(x)
         xs.append(x)
 
-    return torch.stack(xs)
+    return torch.stack(xs).view(1, 2, int(math.sqrt(x_dim)), int(math.sqrt(x_dim)))
 
 
 def minmax_normalise(tensor, min_value=0.0, max_value=1.0):
@@ -107,7 +109,7 @@ def g(stems, alpha=1):
     return torch.sum(torch.stack(stems, dim=0) * alpha if type(stems) is list else stems * alpha, dim=0)
 
 
-def g_xz(xz, x_dim, z_dim):
+def g_xz(xz, x_dim, z_dim, device):
     total_sum = 0
 
     for stem_idx in range(k):
@@ -279,9 +281,9 @@ def log_p_s(model, video, xz, x_dim, z_dim, k):
     x_2c = [extract_x(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
     x_2c = torch.stack(x_2c, dim=0)
 
-    p_logit = model(video, x_2c)
+    p_logit, _, _, _, _ = model(video, x_2c.view(1, 2, int(math.sqrt(x_dim)), int(math.sqrt(x_dim))))
 
-    return torch.log(torch.sigmoid(p_logit))
+    return torch.log(p_logit.squeeze())
 
 
 def separate_video(gt_m,
@@ -314,7 +316,7 @@ def separate_video(gt_m,
 
     gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim).to(device)]).to(device)
 
-    vaes = get_vaes_rochester(stem_names)
+    vaes = get_vaes_rochester(stem_names, device)
 
     sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                             end=torch.log10(torch.tensor(sigma_end)),
@@ -324,9 +326,6 @@ def separate_video(gt_m,
 
     xz = []
 
-    video_model = VideoModel(hps_video['z_dim_2d'], hps_video['z_dim_3d'])
-    video_model.load_state_dict(torch.load(f'checkpoints/{video_model_name}.pth', map_location=device))
-
     for i in range(k):
         noise_image = torch.rand(image_h, image_w).to(device)
         mu, log_var = vaes[i].encode(noise_image.unsqueeze(dim=0).unsqueeze(dim=0))
@@ -335,12 +334,18 @@ def separate_video(gt_m,
         xz.append(noise_image.view(-1))
         xz.append(z.view(-1))
 
-    s = video_model(video, extract_stacked_x(xz, x_dim, z_dim))
-
-    xz.append(s)
-
     # create a big flat vector
     xz = torch.cat(xz).to(device)
+    if video is not None:
+        video_model = VideoModel(hps_video['z_dim_2d'], hps_video['z_dim_3d'])
+        video_model.load_state_dict(torch.load(f'checkpoints/{video_model_name}.pth', map_location=device))
+        stacked_x = extract_stacked_x(xz, x_dim, z_dim)
+        s, _, _, _, _ = video_model(video, stacked_x)
+        s = s.squeeze(dim=1)
+    else:
+        s = torch.tensor([0])
+
+    xz = torch.cat([xz, s])
     xz.requires_grad_(True)
     assert len(xz) == k * (x_dim + z_dim) + 1
 
@@ -356,7 +361,6 @@ def separate_video(gt_m,
 
     for i in range(L):
         eta_i = delta * sigmas[i] ** 2 / sigmas[L - 1] ** 2
-        sigma_vaes = []
 
         for t in range(T):
 
@@ -367,7 +371,7 @@ def separate_video(gt_m,
 
             # elbo = vae.log_prob(xs[source_idx].unsqueeze(dim=0)).to(device)
             # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
-            log_p_x_z_s = log_p_z(xz, x_dim=x_dim, z_dim=z_dim, k=k) + log_p_x_given_z(sigma_vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim, k=k)
+            log_p_x_z_s = log_p_z(xz, x_dim=x_dim, z_dim=z_dim, k=k) + log_p_x_given_z(vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim, k=k)
 
             if video is not None:
                 log_p_x_z_s += log_p_s(video_model, video, xz, x_dim, z_dim, k) * video_weight
@@ -376,8 +380,8 @@ def separate_video(gt_m,
 
             # print(eta_i)
             u = xz + eta_i * grad_log_p_x_z_s + torch.sqrt(2 * eta_i) * epsilon_t
-            constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim)).float() * alpha
-            elongated_constraint_term = torch.cat([constraint_term for _ in range(k)] + [0]) * constraint_term_weight
+            constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim, device=device)).float() * alpha
+            elongated_constraint_term = torch.cat([constraint_term for _ in range(k)] + [torch.tensor([0])]) * constraint_term_weight
             xz = u - elongated_constraint_term  # minmax_rows(u - temp)
 
             del epsilon_t, u, constraint_term, elongated_constraint_term, log_p_x_z_s, grad_log_p_x_z_s
@@ -392,10 +396,7 @@ def separate_video(gt_m,
         if verbose:
             print(f'Appended {i + 1}/{L}')
 
-        for model in sigma_vaes:
-            del model
-
-        del sigma_vaes, eta_i
+        del eta_i
 
     final_xz = xz_chain[-1]
     final_xs = []

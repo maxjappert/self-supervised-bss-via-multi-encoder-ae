@@ -15,10 +15,12 @@ debug = False
 if debug:
     print('DEBUG MODE ACTIVATED')
 
-dataset_train = MultiModalDataset('train', debug=debug)
-dataset_val = MultiModalDataset('val', debug=debug)
+dataset_train = MultiModalDataset('train', debug=debug, fps=15, normalise=True)
+dataset_val = MultiModalDataset('val', debug=debug, fps=15, normalise=True)
 
-batch_size = 1
+# print(len(dataset_train))
+
+batch_size = 3
 
 dataloader_train = DataLoader(dataset_train, batch_size=batch_size, num_workers=20, collate_fn=collate_fn)
 dataloader_val = DataLoader(dataset_val, batch_size=batch_size, num_workers=20, collate_fn=collate_fn)

@@ -33,9 +33,9 @@ from new_vae import NewVAE
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class MultiModalDataset(Dataset):
-    def __init__(self, split, image_h=64, image_w=64, video_h=128, video_w=128, debug=False):
+    def __init__(self, split, image_h=64, image_w=64, video_h=128, video_w=128, debug=False, normalise=False, fps=30):
         self.video_master_path = os.path.join('data', 'rochester_preprocessed', split)
-        self.datapoints = os.listdir(self.video_master_path) if not debug else os.listdir(self.video_master_path)[::40]
+        self.datapoints = os.listdir(self.video_master_path)[::2] if not debug else os.listdir(self.video_master_path)[::40]
 
         self.video_h = video_h
         self.video_w = video_w
@@ -57,6 +57,8 @@ class MultiModalDataset(Dataset):
         ])
 
         self.debug = debug
+        self.normalise = normalise
+        self.fps = fps
 
     def __len__(self):
         return len(self.datapoints) * 2
@@ -87,22 +89,30 @@ class MultiModalDataset(Dataset):
 
         transformed_frames = []
 
-        to_pil = transforms.ToPILImage()
-        to_tensor = transforms.ToTensor()
+        skips = math.floor(30 / self.fps)
+        new_num_frames = 150 // skips
+
         for frame_idx in range(video_tensor.shape[0]):
-            frame = video_tensor[frame_idx]
-            frame = self.video_transforms(frame).float()  # Apply the defined transformations
-#             # print(frame.shape)
-            transformed_frames.append(frame)
+            if frame_idx % skips == 0:
+                frame = video_tensor[frame_idx]
+                if self.fps < 30:
+                    frame = frame[:, 500:900, :]
+                frame = self.video_transforms(frame).float()  # Apply the defined transformations
+    #             # print(frame.shape)
+
+                if self.normalise:
+                    transformed_frames.append(frame / 255)
+                else:
+                    transformed_frames.append(frame)
 
         video_tensor = torch.stack(transformed_frames, dim=0)
 
         # (num_frames, 3, h, w)
 
         num_frames = video_tensor.shape[0]
-        if num_frames < 150:
+        if num_frames < new_num_frames:
             # Calculate how many frames to add
-            frames_to_add = 150 - num_frames
+            frames_to_add = new_num_frames - num_frames
 
             # Create black frames with the same shape as existing frames (C, H, W)
             black_frame = torch.zeros((self.video_h, self.video_w, 3)).permute(2, 0, 1)  # (C, H, W)
@@ -112,7 +122,7 @@ class MultiModalDataset(Dataset):
             video_tensor = torch.cat([video_tensor, black_frames], dim=0)
 
         # (num_frames, 3, h, w)
-        assert video_tensor.shape[0] == 150, "Video tensor should have exactly 150 frames after padding."
+        assert video_tensor.shape[0] == new_num_frames, "Video tensor should have exactly 150 frames after padding."
 
         if idx % 2 == 0:
             png_files = glob.glob(f'{filename}/*.png')
@@ -138,8 +148,10 @@ class MultiModalDataset(Dataset):
         spectrograms = [Image.open(source_files[i]).convert('L') for i in range(2)]
         # spectrograms = [self.min_max(spectrograms[i]) for i in range(2)]
         spectrograms = [self.image_transforms(spectrograms[i]).squeeze() for i in range(2)]
-        # spectrograms = [self.min_max(spectrogram) for spectrogram in spectrograms]
-        # spectrograms = [torch.tensor(spectrograms[i]) for i in range(2)]
+
+        if self.normalise:
+            spectrograms = [self.min_max(spectrogram) for spectrogram in spectrograms]
+
         spectrograms = torch.stack(spectrograms, dim=0)
 
         #print(spectrogram.min())
@@ -648,7 +660,7 @@ def export_hyperparameters_to_file(name, channels, hidden, kernel_sizes, strides
         json.dump(variables, file)
 
 
-def export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, video_h, video_w, image_h, image_w):
+def export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, video_h, video_w, image_h, image_w, normalise, fps):
     """
     Saves the passed hyperparameters to a json file.
     :return: None
@@ -660,7 +672,9 @@ def export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, video_h, vide
         'video_h': video_h,
         'video_w': video_w,
         'image_h': image_h,
-        'image_w': image_w
+        'image_w': image_w,
+        'normalise': normalise,
+        'fps': fps
     }
 
     if not os.path.exists('hyperparameters'):
@@ -915,7 +929,7 @@ def test_vae(vae, dataset, num_samples=64):
 
 
 class ResNetVAE(nn.Module):
-    def __init__(self, original_resnet, latent_dim):
+    def __init__(self, original_resnet, latent_dim, deterministic=False):
         super(ResNetVAE, self).__init__()
 
         # Retain all layers except the final fully connected layer
@@ -938,7 +952,6 @@ class ResNetVAE(nn.Module):
         # Flatten the output for the FC layers
         x = self.flatten(x)
 
-        # Get mean and log-variance
         mu = self.fc_mu(x)
         logvar = self.fc_logvar(x)
 
@@ -1025,7 +1038,7 @@ class VideoModel(nn.Module):
             # each output: (batch_size, 2, h, w)
 
         # optical_flow = torch.stack(optical_flow, dim=1)
-        optical_flow = optical_flow.permute(0, 2, 1, 3, 4).to(device)
+        optical_flow = optical_flow.permute(0, 2, 1, 3, 4)
 
         return optical_flow
 
@@ -1087,8 +1100,12 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
 
             train_loss += loss.item()
 
-            predicted = (y_hat >= 0.5).float()
+            predicted = (y_hat.squeeze() >= 0.5).float()
             correct = (predicted == y).sum().item()
+
+            if correct > len(y):
+                print('error')
+
             train_correct += correct
             train_samples += y.size(0)
 
@@ -1119,7 +1136,7 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
 
                 val_loss += loss.item()
 
-                predicted = (y_hat >= 0.5).float()
+                predicted = (y_hat.squeeze() >= 0.5).float()
                 correct = (predicted == y).sum().item()
                 val_correct += correct
                 val_samples += y.size(0)
@@ -1140,7 +1157,7 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
 #
             if name:
                 torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
-                export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, data_loader_train.dataset.video_h, data_loader_train.dataset.video_w, data_loader_train.dataset.image_h, data_loader_train.dataset.image_w)
+                export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, data_loader_train.dataset.video_h, data_loader_train.dataset.video_w, data_loader_train.dataset.image_h, data_loader_train.dataset.image_w, data_loader_train.dataset.normalise, data_loader_train.dataset.fps)
                 print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
 
         train_losses.append(avg_train_loss)

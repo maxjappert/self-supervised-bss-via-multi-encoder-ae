@@ -230,7 +230,7 @@ def get_vaes(name, stem_indices, sigma=None):
 
     return vaes
 
-def get_vaes_rochester(names):
+def get_vaes_rochester(names, device):
     vaes = []
 
     names = [f'{name}_{name}' for name in names]
