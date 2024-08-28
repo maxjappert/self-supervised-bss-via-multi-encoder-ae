@@ -36,11 +36,11 @@ if torch.cuda.is_available():
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-device = 'cpu' # torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 np.set_printoptions(precision=3, suppress=True)
 
-def experiment(name_video_model):
+def experiment_video(name_video_model, num_samples=100, video_weight=1024, gradient_weight=15):
     k = 2
     image_h = 64
     image_w = 64
@@ -50,8 +50,6 @@ def experiment(name_video_model):
     hps_video = json.load(open(f'hyperparameters/{name_video_model}.json'))
 
     dataset = MultiModalDataset('val', normalise=hps_video['normalise'], fps=hps_video['fps'])
-
-    num_samples = 1
 
     metrics = {'sdr': 0,
                'isr': 1,
@@ -79,16 +77,16 @@ def experiment(name_video_model):
 
         # separate using basis
         separated_basis = separate_video(gt_m, None,  hps_stems, hps_video, name_video_model, sample['stem_names'],
-                                         alpha=1, visualise=False, verbose=False,
+                                         alpha=1, visualise=False, verbose=False, gradient_weight=15,
                                          constraint_term_weight=-15, device=device)
         separated_basis = [x_i.detach().cpu() for x_i in separated_basis]
 
         separated_basis_video = separate_video(gt_m, video,  hps_stems, hps_video, name_video_model, sample['stem_names'],
-                                         alpha=1, visualise=False, verbose=False,
-                                         constraint_term_weight=-15, device=device)
+                                         alpha=1, visualise=False, verbose=False, gradient_weight=gradient_weight,
+                                         constraint_term_weight=-15, device=device, video_weight=video_weight)
         separated_basis_video = [x_i.detach().cpu() for x_i in separated_basis_video]
 
-        gt_xs = np.array([x.squeeze().view(-1) for x in gt_xs])
+        gt_xs = np.array([x.detach().cpu().squeeze().view(-1) for x in gt_xs])
 
         # compute metrics
         sdr_basis, isr_basis, sir_basis, sar_basis, _ = mir_eval.separation.bss_eval_images(gt_xs, separated_basis)
@@ -104,7 +102,6 @@ def experiment(name_video_model):
 
         print()
 
-
     print_output(results_basis, k, 0, 'BASIS')
     print_output(results_basis_video, k, 0, 'BASIS Video')
 
@@ -116,4 +113,4 @@ def experiment(name_video_model):
         # print(f'{round(np.mean(basis_sdr_2), 3)} +- {round(np.std(basis_sdr_2), 3)}')
         # print()
 
-experiment('video_model_raft_resnet')
+# experiment('video_model_raft_resnet', num_samples=5)

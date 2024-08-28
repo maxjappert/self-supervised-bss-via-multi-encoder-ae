@@ -97,7 +97,7 @@ def g(stems, alpha=1):
     return torch.sum(torch.stack(stems, dim=0) * alpha if type(stems) is list else stems * alpha, dim=0)
 
 
-def g_xz(xz, x_dim, z_dim):
+def g_xz(xz, x_dim, z_dim, device):
     total_sum = 0
 
     for stem_idx in range(k):
@@ -208,7 +208,7 @@ if train:
     sys.exit(0)
 
 
-def get_vaes(name, stem_indices, sigma=None):
+def get_vaes(name, stem_indices, device, sigma=None):
     hps = json.load(open(os.path.join('hyperparameters', f'{name}_stem1.json')))
     vaes = []
 
@@ -302,7 +302,9 @@ def separate(gt_m,
              name=None,
              visualise=False,
              k=k, constraint_term_weight=1,
-             verbose=True):
+             verbose=True,
+             gradient_weight=1,
+             device=device):
 
     x_dim = image_h * image_w
 
@@ -313,8 +315,8 @@ def separate(gt_m,
 
     gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim).to(device)]).to(device)
 
-    vaes_noisy = get_vaes(name, stem_indices, sigma=sigma_end if finetuned else None)
-    vaes_perfect = get_vaes(name, stem_indices)
+    vaes_noisy = get_vaes(name, stem_indices, device, sigma=sigma_end if finetuned else None)
+    vaes_perfect = get_vaes(name, stem_indices, device)
 
     sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                             end=torch.log10(torch.tensor(sigma_end)),
@@ -323,7 +325,6 @@ def separate(gt_m,
     # sigmas.requires_grad_(True)
 
     xz = []
-
 
     for i in range(k):
         noise_image = torch.rand(image_h, image_w).to(device)
@@ -374,11 +375,11 @@ def separate(gt_m,
             # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
             log_p_x_z = log_p_z(xz, x_dim=x_dim, z_dim=z_dim) + log_p_x_given_z(sigma_vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim)
 
-            grad_log_p_x_z = torch.autograd.grad(log_p_x_z, xz, retain_graph=True, create_graph=True)[0].detach()
+            grad_log_p_x_z = torch.autograd.grad(log_p_x_z, xz)[0].detach() * gradient_weight
 
             # print(eta_i)
             u = xz + eta_i * grad_log_p_x_z + torch.sqrt(2 * eta_i) * epsilon_t
-            constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim)).float() * alpha
+            constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim, device=device)).float() * alpha
             elongated_constraint_term = torch.cat([constraint_term for _ in range(k)]) * constraint_term_weight
             xz = u - elongated_constraint_term  # minmax_rows(u - temp)
 

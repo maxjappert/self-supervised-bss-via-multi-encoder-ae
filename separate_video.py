@@ -37,6 +37,8 @@ if torch.cuda.is_available():
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
+k = 2
+
 def extract_x(xz, stem_idx, x_dim, z_dim):
     start_idx = stem_idx * (x_dim + z_dim)
     end_idx = start_idx + x_dim
@@ -118,28 +120,7 @@ def g_xz(xz, x_dim, z_dim, device):
     return total_sum
 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-# name = 'musdb_small_newelbo'
-name = 'musdb'
-hps = json.load(open(f'hyperparameters/{name}_stem1.json'))
-image_h = hps['image_h']
-image_w = hps['image_w']
-
-k = 2
-
-debug = False
-
-train_datasets = [PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug,
-                               stem_type=i + 1) for i in range(4)]
-val_datasets = [
-    PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug, stem_type=i + 1)
-    for i in range(4)]
-
-dataloaders_train = [DataLoader(train_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
-dataloaders_val = [DataLoader(val_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
-
-def finetune_sigma_models(vae, dataloader_train, dataloader_val, sigmas):
+def finetune_sigma_models(vae, dataloader_train, dataloader_val, sigmas, name):
     for sigma in sigmas:
         finetune_sigma(vae,
                        dataloader_train,
@@ -153,7 +134,8 @@ def finetune_sigma_models(vae, dataloader_train, dataloader_val, sigmas):
                        )
 
 
-
+image_h = 64
+image_w = 64
 
 
 def train_sigma_models(dataloader_train, dataloader_val):
@@ -187,6 +169,14 @@ else:
 
 
 if train:
+    name = 'toy'
+
+    device = 'cuda'
+
+    debug = False
+
+    hps = json.load(open(f'hyperparameters/{name}.json'))
+
     vae = VAE(latent_dim=hps['hidden'],
               image_h=image_h,
               image_w=image_w,
@@ -261,15 +251,15 @@ def log_p_z(xz, x_dim, z_dim, k):
     return total_log_prob
 
 
-def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim, k):
+def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim, k, device):
     total_log_prob = 0
 
     for stem_idx in range(k):
         x = extract_x(xz, stem_idx, x_dim=x_dim, z_dim=z_dim)
         z = extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim)
 
-        x_recon = vaes[stem_idx].decode(z.unsqueeze(dim=0))
-        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma ** 2)
+        x_recon = vaes[stem_idx].decode(z.unsqueeze(dim=0).to(device))
+        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma)
 
         total_log_prob += torch.sum(mvn.log_prob(x))
 
@@ -277,13 +267,13 @@ def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim, k):
 
     return total_log_prob
 
-def log_p_s(model, video, xz, x_dim, z_dim, k):
+def log_p_s(model, video, xz, x_dim, z_dim, k, device):
     x_2c = [extract_x(xz, stem_idx, x_dim=x_dim, z_dim=z_dim) for stem_idx in range(k)]
-    x_2c = torch.stack(x_2c, dim=0)
+    x_2c = torch.stack(x_2c, dim=0).to(device)
 
-    p_logit, _, _, _, _ = model(video, x_2c.view(1, 2, int(math.sqrt(x_dim)), int(math.sqrt(x_dim))))
+    p, _, _, _, _ = model(video, x_2c.view(1, 2, int(math.sqrt(x_dim)), int(math.sqrt(x_dim))))
 
-    return torch.log(p_logit.squeeze())
+    return torch.log(p.squeeze())
 
 
 def separate_video(gt_m,
@@ -296,23 +286,20 @@ def separate_video(gt_m,
                    T=100,
                    alpha=1,
                    delta=2*1e-05,
-                   image_h=image_h,
-                   image_w=image_w,
+                   image_h=64,
+                   image_w=64,
                    sigma_start=0.1,
                    sigma_end=1.0,
                    visualise=False,
                    k=k, constraint_term_weight=1,
                    verbose=True,
                    video_weight=1,
-                   device='cuda'):
+                   device=torch.device('cuda'),
+                   gradient_weight=15):
 
     x_dim = image_h * image_w
 
     z_dim = hps_stems['hidden']
-    # z_dim_video = hps_video['z_dim_2d'] + hps_video['z_dim_3d']
-
-    # stem_indices = [0, 3]
-    # gt_xs = [val_datasets[stem_index][random.randint(0, 100)]['spectrogram'] for stem_index in stem_indices]
 
     gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim).to(device)]).to(device)
 
@@ -322,7 +309,7 @@ def separate_video(gt_m,
                             end=torch.log10(torch.tensor(sigma_end)),
                             steps=L, base=10).flip(dims=[0]).to(device)
 
-    sigmas.requires_grad_(True)
+    # sigmas.requires_grad_(True)
 
     xz = []
 
@@ -331,19 +318,22 @@ def separate_video(gt_m,
         mu, log_var = vaes[i].encode(noise_image.unsqueeze(dim=0).unsqueeze(dim=0))
         z = vaes[i].reparameterise(mu, log_var)
         # z = torch.randn((1, z_dim)).to(device)
-        xz.append(noise_image.view(-1))
-        xz.append(z.view(-1))
+        xz.append(noise_image.view(-1).detach().cpu())
+        xz.append(z.view(-1).detach().cpu())
 
     # create a big flat vector
     xz = torch.cat(xz).to(device)
     if video is not None:
-        video_model = VideoModel(hps_video['z_dim_2d'], hps_video['z_dim_3d'])
+        video = video.to(device)
+        video_model = VideoModel(hps_video['z_dim_2d'], hps_video['z_dim_3d'], device=device).to(device)
         video_model.load_state_dict(torch.load(f'checkpoints/{video_model_name}.pth', map_location=device))
-        stacked_x = extract_stacked_x(xz, x_dim, z_dim)
+        video_model.eval()
+        stacked_x = extract_stacked_x(xz, x_dim, z_dim).to(device)
         s, _, _, _, _ = video_model(video, stacked_x)
         s = s.squeeze(dim=1)
+        s = torch.log(s)
     else:
-        s = torch.tensor([0])
+        s = torch.tensor([0]).to(device)
 
     xz = torch.cat([xz, s])
     xz.requires_grad_(True)
@@ -363,31 +353,38 @@ def separate_video(gt_m,
         eta_i = delta * sigmas[i] ** 2 / sigmas[L - 1] ** 2
 
         for t in range(T):
-
             epsilon_t = torch.randn(xz.shape, requires_grad=True).to(device)
 
             if xz.grad is not None:
                 xz.grad.zero_()
 
+            if video is not None:
+                log_prob = log_p_s(video_model, video, xz, x_dim, z_dim, k, device) * video_weight
+            else:
+                log_prob = torch.tensor(0)
+
             # elbo = vae.log_prob(xs[source_idx].unsqueeze(dim=0)).to(device)
             # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
-            log_p_x_z_s = log_p_z(xz, x_dim=x_dim, z_dim=z_dim, k=k) + log_p_x_given_z(vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim, k=k)
+            log_p_x_z_s = (log_p_z(xz, x_dim=x_dim, z_dim=z_dim, k=k)
+                           + log_p_x_given_z(vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim, k=k, device=device)
+                           + log_prob)
 
-            if video is not None:
-                log_p_x_z_s += log_p_s(video_model, video, xz, x_dim, z_dim, k) * video_weight
-
-            grad_log_p_x_z_s = torch.autograd.grad(log_p_x_z_s, xz, retain_graph=True, create_graph=True)[0]
+            grad_log_p_x_z_s = torch.autograd.grad(log_p_x_z_s, xz)[0] * gradient_weight
 
             # print(eta_i)
             u = xz + eta_i * grad_log_p_x_z_s + torch.sqrt(2 * eta_i) * epsilon_t
             constraint_term = (eta_i / sigmas[i] ** 2) * (gt_m_xz - g_xz(xz, x_dim=x_dim, z_dim=z_dim, device=device)).float() * alpha
-            elongated_constraint_term = torch.cat([constraint_term for _ in range(k)] + [torch.tensor([0])]) * constraint_term_weight
+            elongated_constraint_term = torch.cat([constraint_term for _ in range(k)] + [torch.tensor([0]).to(device)]) * constraint_term_weight
             xz = u - elongated_constraint_term  # minmax_rows(u - temp)
+
+            if xz[-1] > 0:
+                xz[-1] = 0
+
+            # print(torch.exp(xz[-1]))
 
             del epsilon_t, u, constraint_term, elongated_constraint_term, log_p_x_z_s, grad_log_p_x_z_s
 
-
-        xz_chain.append(xz.cpu())
+        xz_chain.append(xz.detach().cpu())
 
         # for vis_idx in range(k):
             # x = extract_x(xz_chain[-1], vis_idx, x_dim=x_dim, z_dim=z_dim).view(image_h, image_w)

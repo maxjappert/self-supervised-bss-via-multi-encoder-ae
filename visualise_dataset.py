@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 from scipy import signal
 from scipy.ndimage import rotate
 
-from functions_prior import PriorDataset
+from functions_prior import PriorDataset, MultiModalDataset
 
 dataset_name = 'musdb_18_prior'
 
@@ -32,7 +32,7 @@ if dataset_name == 'musdb_18_prior':
         axs[i].set_yticks([])
 
     plt.savefig('figures/waves_musdb.png')
-else:
+elif dataset_name == 'toy_dataset':
     fig, axs = plt.subplots(2, 5, figsize=(10, 4))
 
     axs[0, 0].imshow(rotate(gt_m.squeeze(), angle=180), cmap='grey')
@@ -70,3 +70,29 @@ else:
     axs[0, 0].set_ylabel('Time-frequency Space')
     axs[1, 0].set_ylabel('Real Space')
     plt.savefig('figures/waves.png')
+else:
+    while True:
+        sample = dataset[random.randint(0, len(dataset) - 1)]
+        if sample['label'] == 1:
+            break
+
+    dataset = MultiModalDataset('train', normalise=hps_video['normalise'], fps=hps_video['fps'])
+    gt_xs = sample['sources'].numpy()
+    gt_m = np.sum(gt_xs, axis=0)
+
+    fig, axs = plt.subplots(1, 5, figsize=(10, 2))
+
+    axs[0].imshow(rotate(gt_m.squeeze(), angle=180), cmap='grey')
+    axs[0].set_title('Mixture')
+    axs[0].set_xticks([])
+    axs[0].set_yticks([])
+
+    titles = ['Drums', 'Bass', 'Other', 'Vocals']
+
+    for i in range(1, 5):
+        axs[i].imshow(rotate(gt_data[i - 1].squeeze(), angle=180), cmap='grey')
+        axs[i].set_title(titles[i - 1])
+        axs[i].set_xticks([])
+        axs[i].set_yticks([])
+
+    plt.savefig('figures/waves_musdb.png')

@@ -157,10 +157,10 @@ class MultiModalDataset(Dataset):
         #print(spectrogram.min())
         #print(spectrogram.max())
 
-        _indices = [file.rindex('_') for file in source_files]
-        dot_indices = [file.rindex('.') for file in source_files]
+        _indices = [file.rindex('_')+1 for file in source_files]
+        dot_indices = [index+2 for index in _indices]
 
-        stem_names = [source_files[i][_indices[i]+1:dot_indices[i]] for i in range(2)]
+        stem_names = [source_files[i][_indices[i]:dot_indices[i]] for i in range(2)]
 
         return {
                 'video': video_tensor,
@@ -984,14 +984,14 @@ class SimpleFCN(nn.Module):
 
 
 class VideoModel(nn.Module):
-    def __init__(self, z_dim_2d, z_dim_3d, use_optical_flow=True, use_resnet=True):
+    def __init__(self, z_dim_2d, z_dim_3d, use_optical_flow=True, use_resnet=True, device=torch.device('cuda')):
         super(VideoModel, self).__init__()
 
         self.model_raft = raft_small(weights=Raft_Small_Weights.DEFAULT)
         self.model_raft.eval()
 
         resnet_3d = models.video.r3d_18(weights=R3D_18_Weights.DEFAULT)
-        resnet_3d.stem[0] = nn.Conv3d(2, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+        resnet_3d.stem[0] = nn.Conv3d(2 if use_optical_flow else 3, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
 
         self.vae_resnet_3d = ResNetVAE(resnet_3d, z_dim_3d)
 
@@ -1009,6 +1009,8 @@ class VideoModel(nn.Module):
 
         self.fc = SimpleFCN(input_size=z_dim_2d + z_dim_3d,
                        hidden_size=(z_dim_2d + z_dim_3d) // 2)
+
+        self.device = device
 
     def get_optical_flows(self, video):
         # optical_flows = []
@@ -1045,7 +1047,7 @@ class VideoModel(nn.Module):
     def get_latent_representation(self, video, spectrograms):
 
         if self.use_optical_flow:
-            optical_flows = self.get_optical_flows(video)
+            optical_flows = self.get_optical_flows(video).to(self.device)
 
             z_3d, mu_3d, log_var_3d = self.vae_resnet_3d(optical_flows)
         else:
@@ -1068,9 +1070,11 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
     model = VideoModel(z_dim_2d, z_dim_3d, use_optical_flow=use_optical_flow, use_resnet=use_resnet).to(device)
     optimiser = torch.optim.Adam(model.parameters(), lr=lr)
 
+    print(f'Training {name}')
+
     criterion = BCELoss()
 
-    best_val_loss = float('inf')
+    best_val_accuracy = 0
 
     train_losses, train_accuracies, val_losses, val_accuracies = [], [], [], []
 
@@ -1109,8 +1113,8 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
             train_correct += correct
             train_samples += y.size(0)
 
-            del spectrograms, video, y, y_hat, mu_2d, log_var_2d, mu_3d, log_var_3d, loss_kl_1, loss_kl_2, loss
-            torch.cuda.empty_cache()
+            # del spectrograms, video, y, y_hat, mu_2d, log_var_2d, mu_3d, log_var_3d, loss_kl_1, loss_kl_2, loss
+            # torch.cuda.empty_cache()
 
         avg_train_loss = train_loss / len(data_loader_train.dataset)
         train_accuracy = train_correct / train_samples
@@ -1151,19 +1155,19 @@ def train_video(data_loader_train, data_loader_val, lr=1e-03, epochs=50, verbose
             print(
                 f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch + 1}/{epochs}], Train Loss: {avg_train_loss:.4f} Acc: {(train_accuracy*100):.4f}%, Val Loss: {avg_val_loss:.4f}, Acc: {(val_accuracy*100):.4f}%")
 
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
             best_model = model
 #
             if name:
                 torch.save(best_model.state_dict(), f'checkpoints/{name}.pth')
                 export_hyperparameters_to_file_video(name, z_dim_2d, z_dim_3d, data_loader_train.dataset.video_h, data_loader_train.dataset.video_w, data_loader_train.dataset.image_h, data_loader_train.dataset.image_w, data_loader_train.dataset.normalise, data_loader_train.dataset.fps)
-                print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val loss: {best_val_loss:.4f}")
+                print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Best model saved as {name} with val accuracy: {(val_accuracy*100):.4f}%")
 
         train_losses.append(avg_train_loss)
         train_accuracies.append(train_accuracy)
         val_losses.append(avg_val_loss)
-        val_accuracies.append(val_accuracies)
+        val_accuracies.append(val_accuracy)
 
         with open(f'results/{name}_train_losses.pkl', 'wb') as f:
             pickle.dump(train_losses, f)

@@ -16,8 +16,7 @@ import seaborn as sn
 
 set_seed(42)
 
-def create_basis_confusion_matrix(model_name, num_samples_per_combo=128):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+def create_basis_confusion_matrix(model_name, num_samples_per_combo=64, device='cuda'):
 
     # model_name = sys.argv[1]
     hps = json.load(open(f'hyperparameters/{model_name}_stem1.json'))
@@ -30,7 +29,7 @@ def create_basis_confusion_matrix(model_name, num_samples_per_combo=128):
 
     # test_datasets = [TwoSourcesDataset(split='test', debug=False, name='toy_dataset', reduction_ratio=0.0001)]
 
-    vaes = get_vaes(model_name, [0, 1, 2, 3])
+    vaes = get_vaes(model_name, [0, 1, 2, 3], device)
 
     confusion_matrix = np.zeros((4, 4))
 
@@ -48,7 +47,9 @@ def create_basis_confusion_matrix(model_name, num_samples_per_combo=128):
 
             for i in range(num_samples_per_combo):
                 print(i)
-                source1, source2 = separate(batch_combined[i], hps, name=model_name, sigma_end=1.0, finetuned=False, visualise=False, verbose=False, k=2, constraint_term_weight=-18, stem_indices=[vae_idx1, vae_idx2])
+                source1, source2 = separate(batch_combined[i], hps, name=model_name, sigma_end=1.0, finetuned=False,
+                                            visualise=False, verbose=False, k=2, constraint_term_weight=-18,
+                                            stem_indices=[vae_idx1, vae_idx2], device=device)
                 separated_basis = np.array([source1.detach().cpu().view(-1), source2.detach().cpu().view(-1)])
                 gt = np.array([batch1[i].cpu().view(-1), batch2[i].cpu().view(-1)])
                 sdr, isr, sir, sar, _ = mir_eval.separation.bss_eval_images(separated_basis, gt)
@@ -70,5 +71,5 @@ def create_basis_confusion_matrix(model_name, num_samples_per_combo=128):
 
     plt.savefig(f'figures/confusion_matrix_basis_{model_name}.png')
 
-create_basis_confusion_matrix('toy_opti')
-create_basis_confusion_matrix('musdb_opti')
+# create_basis_confusion_matrix('toy_opti')
+# create_basis_confusion_matrix('musdb_opti')
