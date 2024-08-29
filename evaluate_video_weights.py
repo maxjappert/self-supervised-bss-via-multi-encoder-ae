@@ -18,7 +18,7 @@ from separate_video import separate_video
 
 set_seed(42)
 
-def evaluate_video_weight(gradient_weight, num_samples=128, name_video_model='video_model_raft_resnet', device='cuda'):
+def evaluate_video_weight(gradient_weight, num_samples=10, name_video_model='video_model_raft_resnet', device='cuda'):
     # name_vae = sys.argv[1]
     hps_stems = json.load(open(f'hyperparameters/vn_vn.json'))
     hps_video = json.load(open(f'hyperparameters/{name_video_model}.json'))

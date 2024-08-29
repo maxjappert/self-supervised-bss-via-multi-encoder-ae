@@ -278,7 +278,7 @@ def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim):
         z = extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim)
 
         x_recon = vaes[stem_idx].decode(z.unsqueeze(dim=0))
-        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma ** 2)
+        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma)
 
         total_log_prob += torch.sum(mvn.log_prob(x))
 

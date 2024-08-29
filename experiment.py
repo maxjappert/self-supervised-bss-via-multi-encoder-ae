@@ -39,7 +39,7 @@ torch.backends.cudnn.benchmark = False
 
 np.set_printoptions(precision=3, suppress=True)
 
-def experiment(name_vae, device):
+def experiment(name_vae, device, num_samples=450):
     k = 2
     image_h = 64
     image_w = 64
@@ -65,8 +65,6 @@ def experiment(name_vae, device):
 
     total_sample_sdr_1 = 0
     total_sample_sdr_2 = 0
-
-    num_samples = 450
 
     metrics = {'sdr': 0,
                'isr': 1,

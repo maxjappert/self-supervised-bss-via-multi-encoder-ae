@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 from functions_prior import MultiModalDataset
 from separate_video import separate_video
 
-device = 'cpu'
+device = 'cuda'
 
 hps_stems = json.load(open(f'hyperparameters/vn_vn.json'))
 hps_video = json.load(open(f'hyperparameters/video_model_raft_resnet.json'))
@@ -40,7 +40,7 @@ def generate_video_separation_samples(num_samples=10):
 
         separated_basis_video = separate_video(gt_m, video,  hps_stems, hps_video, 'video_model_raft_resnet', sample['stem_names'],
                                          alpha=1, visualise=False, verbose=False, gradient_weight=15,
-                                         constraint_term_weight=-15, device=device, video_weight=512)
+                                         constraint_term_weight=-15, device=device, video_weight=1024)
         separated_basis_video = [x_i.detach().cpu().view((64, 64)) for x_i in separated_basis_video]
 
         gt_xs = np.array([x.detach().cpu().squeeze() for x in gt_xs])
