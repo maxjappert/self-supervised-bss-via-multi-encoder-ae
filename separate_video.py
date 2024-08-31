@@ -18,25 +18,6 @@ import os
 from functions_prior import VAE, PriorDataset, finetune_sigma, train_vae, VideoModel
 from separate_new import get_vaes_rochester
 
-# Define the seed
-seed = 42
-
-# Set the seed for Python's built-in random module
-random.seed(seed)
-
-# Set the seed for NumPy
-np.random.seed(seed)
-
-# Set the seed for PyTorch
-torch.manual_seed(seed)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
-
-# For CuDNN backend (optional, but recommended for reproducibility)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-
 k = 2
 
 def extract_x(xz, stem_idx, x_dim, z_dim):
@@ -359,17 +340,22 @@ def separate_video(gt_m,
                 xz.grad.zero_()
 
             if video is not None:
-                log_prob = log_p_s(video_model, video, xz, x_dim, z_dim, k, device) * video_weight
+                log_prob3 = log_p_s(video_model, video, xz, x_dim, z_dim, k, device)
+                log_prob3 = log_prob3 * video_weight
             else:
-                log_prob = torch.tensor(0)
+                log_prob3 = torch.tensor(0)
+
+            log_prob1 = log_p_z(xz, x_dim=x_dim, z_dim=z_dim, k=k)
+            log_prob2 = log_p_x_given_z(vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim, k=k, device=device)
 
             # elbo = vae.log_prob(xs[source_idx].unsqueeze(dim=0)).to(device)
             # grad_log_p_x = #torch.autograd.grad(elbo, xs[source_idx], retain_graph=True, create_graph=True)[0]
-            log_p_x_z_s = (log_p_z(xz, x_dim=x_dim, z_dim=z_dim, k=k)
-                           + log_p_x_given_z(vaes, xz, sigmas[i], x_dim=x_dim, z_dim=z_dim, k=k, device=device)
-                           + log_prob)
+            log_p_x_z_s = log_prob1 + log_prob2 + log_prob3
 
-            grad_log_p_x_z_s = torch.autograd.grad(log_p_x_z_s, xz)[0] * gradient_weight
+            try:
+                grad_log_p_x_z_s = torch.autograd.grad(log_p_x_z_s, xz)[0] * gradient_weight
+            except RuntimeError:
+                print('')
 
             # print(eta_i)
             u = xz + eta_i * grad_log_p_x_z_s + torch.sqrt(2 * eta_i) * epsilon_t

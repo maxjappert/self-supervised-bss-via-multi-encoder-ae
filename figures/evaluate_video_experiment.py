@@ -5,8 +5,8 @@ from sympy.physics.control.control_plots import plt
 
 vae_name = 'toy'
 
-results_basis = np.load(f'../results/results_basis_rochester_novideo.npy')
-results_basis_video = np.load(f'../results/results_basis_rochester_video.npy')
+results_basis = np.load(f'../results/results_basis_rochester_novideo_64.npy')
+results_basis_video = np.load(f'../results/results_basis_rochester_video_64.npy')
 
 results = np.stack((results_basis, results_basis_video))
 results = np.mean(results, axis=1)

@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 evaluated_weights = np.load('../results/video_weights_evaluated.npy')
-basis_weights = np.load('../results/video_weights.npy')
+basis_weights = np.load('../results/video_weights_gw15.npy')
 
 metrics = {'sdr': 0, 'isr': 1, 'sir': 2, 'sar': 3}
 jump_distance = 1
@@ -10,9 +10,9 @@ jump_distance = 1
 for metric in metrics.keys():
     fig, ax1 = plt.subplots(figsize=(10, 6))
 
-    ax1.set_xlabel('$\lambda$')
+    ax1.set_xlabel('$\\beta$')
     ax1.set_ylabel(metric.upper())
-    ax1.set_title(f'Influence of video weight on {metric.upper()}', fontsize=16)
+    ax1.set_title(f'Influence of video gradient weight $\\beta$ on {metric.upper()}', fontsize=16)
 
     mean_values = np.mean(np.mean(basis_weights[:, :, metrics[metric], :], axis=1), axis=1)
     std_values = np.std(np.mean(basis_weights[:, :, metrics[metric], :], axis=1), axis=1)

@@ -13,10 +13,7 @@ from torchvision.utils import save_image
 from evaluation_metric_functions import compute_spectral_sdr, compute_spectral_metrics
 from functions import set_seed
 from functions_prior import PriorDataset, MultiModalDataset
-from separate_new import separate, get_vaes
 from separate_video import separate_video
-
-set_seed(42)
 
 def evaluate_video_weight(gradient_weight, num_samples=10, name_video_model='video_model_raft_resnet', device='cuda'):
     # name_vae = sys.argv[1]
@@ -56,7 +53,9 @@ def evaluate_video_weight(gradient_weight, num_samples=10, name_video_model='vid
                                                    gradient_weight=gradient_weight)
             separated_basis_video = [x_i.detach().cpu().view(-1) for x_i in separated_basis_video]
 
-            sdr, isr, sir, sar, perm = mir_eval.separation.bss_eval_images(np.array([x.squeeze().detach().cpu().view(-1) for x in gt_xs]), separated_basis_video, compute_permutation=True)
+            gt_xs = np.array([x.squeeze().detach().cpu().view(-1) for x in gt_xs])
+
+            sdr, isr, sir, sar, perm = mir_eval.separation.bss_eval_images(gt_xs, separated_basis_video, compute_permutation=True)
             # print(f'One metric took {time2 - time1} seconds')
 
             basis[weight_index, :, :, i] = np.array([sdr, isr, sir, sar]).T
@@ -69,4 +68,4 @@ def evaluate_video_weight(gradient_weight, num_samples=10, name_video_model='vid
         np.save(f'results/video_weights_evaluated.npy', weights)
         np.save(f'results/video_weights_gw{gradient_weight}.npy', basis)
 
-# evaluate_video_weight('', num_samples=10, device='cpu')
+evaluate_video_weight(15, num_samples=30, device='cuda')

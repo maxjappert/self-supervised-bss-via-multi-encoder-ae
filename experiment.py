@@ -39,6 +39,13 @@ torch.backends.cudnn.benchmark = False
 
 np.set_printoptions(precision=3, suppress=True)
 
+def print_output(results, k, metric_idx, name, index=-2):
+    for stem_idx in range(k):
+        print(
+            f'{name} {stem_idx + 1}: {round(np.mean(results[stem_idx, metric_idx, :index+1]), 3)} +- {round(np.std(results[stem_idx, metric_idx, :index+1]), 3)}')
+
+    print()
+
 def experiment(name_vae, device, num_samples=450):
     k = 2
     image_h = 64
@@ -139,15 +146,9 @@ def experiment(name_vae, device, num_samples=450):
         results_nmf[:, :, i] = np.array([sdr_nmf, isr_nmf, sir_nmf, sar_nmf]).T
 
 
-    def print_output(results, k, metric_idx, name):
-        for stem_idx in range(k):
-            print(f'{name} {stem_idx+1}: {round(np.mean(results[stem_idx, metric_idx, :]), 3)} +- {round(np.std(results[stem_idx, metric_idx, :]), 3)}')
+        print_output(results_basis, k, 0, 'BASIS', index=i)
+        print_output(results_basis_finetuned, k, 0, 'BASIS Finetuned', index=i)
 
-        print()
-
-
-    print_output(results_basis, k, 0, 'BASIS')
-    print_output(results_basis_finetuned, k, 0, 'BASIS Finetuned')
     print_output(results_prior_samples, k, 0, 'Prior samples')
     print_output(results_noise, k, 0, 'Noise')
     print_output(results_bss, k, 0, 'BSS')
@@ -166,3 +167,5 @@ def experiment(name_vae, device, num_samples=450):
         # print(f'{round(np.mean(basis_sdr_1), 3)} +- {round(np.std(basis_sdr_1), 3)}')
         # print(f'{round(np.mean(basis_sdr_2), 3)} +- {round(np.std(basis_sdr_2), 3)}')
         # print()
+
+# experiment('musdb', 'cuda', num_samples=450)

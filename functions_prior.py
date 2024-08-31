@@ -23,6 +23,7 @@ from torchvision.io import read_video
 from torchvision.models import ResNet18_Weights
 from torchvision.models.optical_flow import Raft_Large_Weights, raft_large, raft_small, Raft_Small_Weights
 from torchvision.models.video import R3D_18_Weights
+from torchvision.utils import save_image
 
 from models.cnn_ae_2d_spectrograms import *
 
@@ -98,7 +99,6 @@ class MultiModalDataset(Dataset):
                 if self.fps < 30:
                     frame = frame[:, 500:900, :]
                 frame = self.video_transforms(frame).float()  # Apply the defined transformations
-    #             # print(frame.shape)
 
                 if self.normalise:
                     transformed_frames.append(frame / 255)
@@ -168,6 +168,22 @@ class MultiModalDataset(Dataset):
                 'label': torch.tensor(label, dtype=torch.float32),
                 'stem_names': stem_names
                }
+
+def save_tensor_image_to_png(image_tensor, filename):
+    image_tensor = image_tensor.permute(1, 2, 0)
+
+    # Convert the tensor to a NumPy array and scale to [0, 255]
+    # image_array = (image_tensor.numpy() * 255).astype('uint8')
+
+    # Create a PIL image
+
+    image_array = (image_tensor.numpy()).astype('uint8')
+
+    image = Image.fromarray(image_array)
+
+    # Save the image as PNG
+    image.save(filename)
+
 
 class ResNetClassifier(nn.Module):
     def __init__(self, num_classes=4, pretrained=True):
