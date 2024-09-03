@@ -10,7 +10,7 @@ from separate_new import get_vaes, separate
 from separate_video import separate_video
 
 device = 'cuda'
-name_vae = 'toy'
+name_vae = 'musdb'
 
 dataset_name = 'toy_dataset' if name_vae.__contains__('toy') else 'musdb_18_prior'
 
@@ -19,7 +19,11 @@ row_labels = ['Ground Truth', 'Separated']
 def rotate_image(image):
     return np.rot90(image, 2)
 
-for sample_idx in range(10):
+num_samples = 10
+
+cmap = 'viridis'
+
+for sample_idx in range(num_samples):
 
     stem_indices = [random.randint(0, 3), random.randint(0, 3)]
 
@@ -52,23 +56,21 @@ for sample_idx in range(10):
                                alpha=1,
                                visualise=False,
                                verbose=False,
-                               constraint_term_weight=-15,
                                stem_indices=stem_indices,
-                               device=device,
-                               gradient_weight=1)
+                               device=device)
 
     separated_basis = [rotate_image(x_i.detach().cpu().view(64, 64).numpy()) for x_i in separated_basis]
 
     gt_xs = [rotate_image(x_i.detach().cpu().squeeze().numpy()) for x_i in gt_xs]
 
     # Visualize the data
-    axs[1, 0].imshow(np.sum(separated_basis, axis=0), cmap='gray')
-    axs[1, 1].imshow(separated_basis[0], cmap='gray')
-    axs[1, 2].imshow(separated_basis[1], cmap='gray')
+    axs[1, 0].imshow(np.sum(separated_basis, axis=0), cmap=cmap)
+    axs[1, 1].imshow(separated_basis[0], cmap=cmap)
+    axs[1, 2].imshow(separated_basis[1], cmap=cmap)
 
-    axs[0, 0].imshow(rotate_image(gt_m.cpu().view(64, 64).numpy()), cmap='gray')
-    axs[0, 1].imshow(gt_xs[0], cmap='gray')
-    axs[0, 2].imshow(gt_xs[1], cmap='gray')
+    axs[0, 0].imshow(rotate_image(gt_m.cpu().view(64, 64).numpy()), cmap=cmap)
+    axs[0, 1].imshow(gt_xs[0], cmap=cmap)
+    axs[0, 2].imshow(gt_xs[1], cmap=cmap)
 
     # Set column titles
     for ax, col in zip(axs[0], column_titles):
@@ -83,6 +85,8 @@ for sample_idx in range(10):
     for i in range(3):
         axs[0, i].axis('off')
         axs[1, i].axis('off')
+
+    print(f'Generated {sample_idx+1}/{num_samples}')
 
 
 

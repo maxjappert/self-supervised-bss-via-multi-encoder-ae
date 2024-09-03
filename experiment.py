@@ -47,6 +47,8 @@ def print_output(results, k, metric_idx, name, index=-2):
     print()
 
 def experiment(name_vae, device, num_samples=450):
+    print(f'Experiment started for {name_vae}')
+
     k = 2
     image_h = 64
     image_w = 64
@@ -99,12 +101,10 @@ def experiment(name_vae, device, num_samples=450):
         gt_m = torch.sum(torch.cat(gt_xs), dim=0).to(device)
 
         # separate using basis
-        separated_basis = separate(gt_m, hps_vae, name=name_vae, stem_indices=stem_indices, finetuned=False, alpha=1, visualise=False, verbose=False,
-                                   constraint_term_weight=-15)
+        separated_basis = separate(gt_m, hps_vae, name=name_vae, stem_indices=stem_indices, finetuned=False, alpha=1, visualise=False, verbose=False)
         separated_basis = [x_i.detach().cpu() for x_i in separated_basis]
 
-        separated_basis_finetuned = separate(gt_m, hps_vae, name=name_vae, stem_indices=stem_indices, finetuned=True, alpha=1, visualise=False, verbose=False, sigma_end=0.5 if name_vae.__contains__('toy') else 1.0,
-                                   constraint_term_weight=-18)
+        separated_basis_finetuned = separate(gt_m, hps_vae, name=name_vae, stem_indices=stem_indices, finetuned=True, alpha=1, visualise=False, verbose=False)
         separated_basis_finetuned = [x_i.detach().cpu() for x_i in separated_basis_finetuned]
 
         # draw sample from prior

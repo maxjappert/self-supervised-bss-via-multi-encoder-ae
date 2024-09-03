@@ -1,4 +1,6 @@
 import json
+import random
+from venv import create
 
 import torch
 from matplotlib import pyplot as plt
@@ -34,7 +36,7 @@ def create_pred_figures(name_vae, device):
             PriorDataset('test', image_h=image_h, image_w=image_w, name=dataset_name, num_stems=4, debug=False, stem_type=i + 1)
             for i in range(4)]
 
-        gt_data = [test_datasets[stem_index][17] for stem_index in stem_indices]
+        gt_data = [test_datasets[stem_index][random.randint(0, len(test_datasets[stem_index])-1)] for stem_index in stem_indices]
         gt_xs = [data['spectrogram'] for data in gt_data]
 
         gt_m = torch.sum(torch.cat(gt_xs), dim=0).to(device)
@@ -46,26 +48,21 @@ def create_pred_figures(name_vae, device):
                                    alpha=1,
                                    visualise=False,
                                    verbose=False,
-                                   constraint_term_weight=-15,
                                    stem_indices=stem_indices,
-                                   device=device,
-                                   gradient_weight=1)
+                                   device=device)
         separated_basis = [x_i.detach().cpu().view(64, 64).numpy() for x_i in separated_basis]
 
         hps_vae_finetuned = json.load(open(f'hyperparameters/toy_stem1.json'))
 
         separated_basis_finetuned = separate(gt_m,
                                              hps_vae_finetuned,
-                                             sigma_end=0.5,
                                              name='toy',
                                              finetuned=True,
                                              alpha=1,
                                              visualise=False,
                                              verbose=False,
-                                             constraint_term_weight=-18,
                                              stem_indices=stem_indices,
-                                             device=device,
-                                             gradient_weight=1)
+                                             device=device)
         separated_basis_finetuned = [x_i.detach().cpu().view(64, 64).numpy() for x_i in separated_basis_finetuned]
 
         samples = [vae.decode(torch.randn(1, hps_vae['hidden']).to(device)).squeeze().detach().cpu() for vae in vaes]
@@ -122,3 +119,6 @@ def create_pred_figures(name_vae, device):
                 continue
 
             create_pred_figure([i, j], name_vae, device)
+
+# create_pred_figures('toy', 'cuda')
+# create_pred_figures('musdb', 'cuda')

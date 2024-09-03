@@ -269,14 +269,14 @@ def separate_video(gt_m,
                    delta=2*1e-05,
                    image_h=64,
                    image_w=64,
-                   sigma_start=0.1,
+                   sigma_start=0.01,
                    sigma_end=1.0,
                    visualise=False,
-                   k=k, constraint_term_weight=1,
+                   k=k, constraint_term_weight=-1,
                    verbose=True,
                    video_weight=1,
                    device=torch.device('cuda'),
-                   gradient_weight=15):
+                   gradient_weight=1):
 
     x_dim = image_h * image_w
 
@@ -353,9 +353,9 @@ def separate_video(gt_m,
             log_p_x_z_s = log_prob1 + log_prob2 + log_prob3
 
             try:
-                grad_log_p_x_z_s = torch.autograd.grad(log_p_x_z_s, xz)[0] * gradient_weight
+                grad_log_p_x_z_s = torch.autograd.grad(log_p_x_z_s, xz)[0].detach() * gradient_weight
             except RuntimeError:
-                print('')
+                print('error computing gradient')
 
             # print(eta_i)
             u = xz + eta_i * grad_log_p_x_z_s + torch.sqrt(2 * eta_i) * epsilon_t

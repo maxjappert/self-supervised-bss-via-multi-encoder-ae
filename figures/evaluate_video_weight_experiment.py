@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-evaluated_weights = np.load('../results/video_weights_evaluated.npy')
-basis_weights = np.load('../results/video_weights_gw15.npy')
+evaluated_weights = np.load('../results/video_weights_evaluated.npy')[:8]
+basis_weights = np.load('../results/video_weights.npy')[:8]
 
 metrics = {'sdr': 0, 'isr': 1, 'sir': 2, 'sar': 3}
 jump_distance = 1
@@ -16,6 +16,11 @@ for metric in metrics.keys():
 
     mean_values = np.mean(np.mean(basis_weights[:, :, metrics[metric], :], axis=1), axis=1)
     std_values = np.std(np.mean(basis_weights[:, :, metrics[metric], :], axis=1), axis=1)
+
+    if metric == 'sdr':
+        for weight_idx, weight in enumerate(evaluated_weights):
+            print(f'Weight: {weight}')
+            print(f'{mean_values[weight_idx]} +- {std_values[weight_idx]}')
 
     ax1.errorbar(
         np.arange(len(evaluated_weights)//jump_distance),

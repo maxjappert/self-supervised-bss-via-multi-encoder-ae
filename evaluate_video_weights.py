@@ -15,7 +15,7 @@ from functions import set_seed
 from functions_prior import PriorDataset, MultiModalDataset
 from separate_video import separate_video
 
-def evaluate_video_weight(gradient_weight, num_samples=10, name_video_model='video_model_raft_resnet', device='cuda'):
+def evaluate_video_weight(num_samples=10, name_video_model='video_model_raft_resnet', device='cuda'):
     # name_vae = sys.argv[1]
     hps_stems = json.load(open(f'hyperparameters/vn_vn.json'))
     hps_video = json.load(open(f'hyperparameters/{name_video_model}.json'))
@@ -48,9 +48,7 @@ def evaluate_video_weight(gradient_weight, num_samples=10, name_video_model='vid
 
             separated_basis_video = separate_video(gt_m, video, hps_stems, hps_video, name_video_model,
                                                    sample['stem_names'],
-                                                   alpha=1, visualise=False, verbose=False,
-                                                   constraint_term_weight=-15, device=device, video_weight=video_weight,
-                                                   gradient_weight=gradient_weight)
+                                                   alpha=1, visualise=False, verbose=False, device=device, video_weight=video_weight)
             separated_basis_video = [x_i.detach().cpu().view(-1) for x_i in separated_basis_video]
 
             gt_xs = np.array([x.squeeze().detach().cpu().view(-1) for x in gt_xs])
@@ -66,6 +64,6 @@ def evaluate_video_weight(gradient_weight, num_samples=10, name_video_model='vid
         print()
 
         np.save(f'results/video_weights_evaluated.npy', weights)
-        np.save(f'results/video_weights_gw{gradient_weight}.npy', basis)
+        np.save(f'results/video_weights.npy', basis)
 
-evaluate_video_weight(15, num_samples=30, device='cuda')
+evaluate_video_weight(num_samples=30, device='cuda')

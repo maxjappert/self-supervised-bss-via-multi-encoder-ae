@@ -109,23 +109,9 @@ def g_xz(xz, x_dim, z_dim, device):
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # name = 'musdb_small_newelbo'
-name = 'musdb'
-hps = json.load(open(f'hyperparameters/{name}_stem1.json'))
-image_h = hps['image_h']
-image_w = hps['image_w']
-
 k = 2
 
 debug = False
-
-train_datasets = [PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug,
-                               stem_type=i + 1) for i in range(4)]
-val_datasets = [
-    PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug, stem_type=i + 1)
-    for i in range(4)]
-
-dataloaders_train = [DataLoader(train_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
-dataloaders_val = [DataLoader(val_datasets[i], batch_size=256, shuffle=True, num_workers=12) for i in range(4)]
 
 def finetune_sigma_models(vae, dataloader_train, dataloader_val, sigmas):
     for sigma in sigmas:
@@ -171,6 +157,11 @@ else:
 
 
 if train:
+    name = sys.argv[3]
+    hps = json.load(open(f'hyperparameters/{name}_stem1.json'))
+    image_h = hps['image_h']
+    image_w = hps['image_w']
+
     vae = VAE(latent_dim=hps['hidden'],
               image_h=image_h,
               image_w=image_w,
@@ -181,13 +172,15 @@ if train:
 
     stem_type = int(sys.argv[2])
 
+    dataset_name = 'toy_dataset' if name == 'toy' else 'musdb_18_prior'
+
     assert stem_type in range(1, 5)
 
-    train_dataset = PriorDataset('train', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4,
+    train_dataset = PriorDataset('train', image_h=image_h, image_w=image_w, name=dataset_name, num_stems=4,
                                  debug=debug,
                                  stem_type=stem_type)
 
-    val_dataset = PriorDataset('val', image_h=image_h, image_w=image_w, name='toy_dataset', num_stems=4, debug=debug,
+    val_dataset = PriorDataset('val', image_h=image_h, image_w=image_w, name=dataset_name, num_stems=4, debug=debug,
                                stem_type=stem_type)
 
     dataloader_train = DataLoader(train_dataset, batch_size=256, shuffle=True, num_workers=4)
@@ -196,7 +189,7 @@ if train:
     vae_name = f'{name}_stem{stem_type}'
     vae.load_state_dict(torch.load(f'checkpoints/{vae_name}.pth', map_location=device))
 
-    sigma_start = 0.1
+    sigma_start = 0.01
     sigma_end = 1.0
     L = 10
     sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
@@ -214,8 +207,8 @@ def get_vaes(name, stem_indices, device, sigma=None):
 
     for stem_index in stem_indices:
         vae = VAE(latent_dim=hps['hidden'],
-                          image_h=image_h,
-                          image_w=image_w,
+                          image_h=64,
+                          image_w=64,
                           use_blocks=hps['use_blocks'],
                           channels=hps['channels'],
                           kernel_sizes=hps['kernel_sizes'],
@@ -239,8 +232,8 @@ def get_vaes_rochester(names, device):
         hps = json.load(open(os.path.join('hyperparameters', f'{name}.json')))
 
         vae = VAE(latent_dim=hps['hidden'],
-                          image_h=image_h,
-                          image_w=image_w,
+                          image_h=64,
+                          image_w=64,
                           use_blocks=hps['use_blocks'],
                           channels=hps['channels'],
                           kernel_sizes=hps['kernel_sizes'],
@@ -278,7 +271,7 @@ def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim):
         z = extract_z(xz, stem_idx, x_dim=x_dim, z_dim=z_dim)
 
         x_recon = vaes[stem_idx].decode(z.unsqueeze(dim=0))
-        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma**2)
+        mvn = torch.distributions.normal.Normal(x_recon.view(-1), sigma)
 
         total_log_prob += torch.sum(mvn.log_prob(x))
 
@@ -286,22 +279,21 @@ def log_p_x_given_z(vaes, xz, sigma, x_dim, z_dim):
 
     return total_log_prob
 
-
 def separate(gt_m,
              hps,
              L=10,
              T=100,
              alpha=1,
              delta=2*1e-05,
-             image_h=image_h,
-             image_w=image_w,
-             sigma_start=0.1,
+             image_h=64,
+             image_w=64,
+             sigma_start=0.01,
              sigma_end=1.0,
              stem_indices=[0, 3],
              finetuned=True,
              name=None,
              visualise=False,
-             k=k, constraint_term_weight=1,
+             k=k, constraint_term_weight=-1,
              verbose=True,
              gradient_weight=1,
              device=device):
@@ -315,8 +307,12 @@ def separate(gt_m,
 
     gt_m_xz = torch.cat([gt_m.view(-1), torch.zeros(z_dim).to(device)]).to(device)
 
-    vaes_noisy = get_vaes(name, stem_indices, device, sigma=sigma_end if finetuned else None)
     vaes_perfect = get_vaes(name, stem_indices, device)
+
+    if finetuned:
+        vaes_noisy = get_vaes(name, stem_indices, device, sigma=sigma_end)
+    else:
+        vaes_noisy = vaes_perfect
 
     sigmas = torch.logspace(start=torch.log10(torch.tensor(sigma_start)),
                             end=torch.log10(torch.tensor(sigma_end)),
@@ -425,7 +421,7 @@ def separate(gt_m,
     return final_xs
 
 
-def evaluate_basis_ability(T, L, alpha, sigma_start, sigma_end, delta, recon_weight, image_h=64, image_w=64, num_samples=32, name_vae='toy', finetuned=False):
+def evaluate_basis_ability(recon_weight, gradient_weight, image_h=64, image_w=64, num_samples=10, name_vae='toy', finetuned=False):
     hps_vae = json.load(open(f'hyperparameters/{name_vae}_stem1.json'))
 
     dataset_name = 'toy_dataset' if name_vae.__contains__('toy') else 'musdb_18_prior'
@@ -439,7 +435,6 @@ def evaluate_basis_ability(T, L, alpha, sigma_start, sigma_end, delta, recon_wei
 
     for i in range(num_samples):
         stem_indices = [random.randint(0, 3), random.randint(0, 3)] # [0, 3]
-        vaes = get_vaes(name_vae, stem_indices)
         now = datetime.now()
         timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
         # print(f'[{timestamp_str}]  Processing {i+1}/{num_samples}')
@@ -447,7 +442,7 @@ def evaluate_basis_ability(T, L, alpha, sigma_start, sigma_end, delta, recon_wei
         gt_data = [val_datasets[stem_index][i + j] for j, stem_index in enumerate(stem_indices)]
         gt_xs = [data['spectrogram'] for data in gt_data]
 
-        gt_m = torch.sum(torch.cat(gt_xs) / len(stem_indices), dim=0).to(device)
+        gt_m = torch.sum(torch.cat(gt_xs), dim=0).to(device)
 
         # separate using basis
         separated_basis = separate(gt_m,
@@ -455,23 +450,17 @@ def evaluate_basis_ability(T, L, alpha, sigma_start, sigma_end, delta, recon_wei
                                    name=name_vae,
                                    stem_indices=stem_indices,
                                    finetuned=finetuned,
-                                   alpha=alpha,
                                    visualise=False,
                                    verbose=False,
                                    constraint_term_weight=recon_weight,
-                                   L=L, T=T,
-                                   sigma_start=sigma_start,
-                                   sigma_end=sigma_end,
-                                   delta=delta)
+                                   gradient_weight=gradient_weight)
         separated_basis = [x_i.detach().cpu() for x_i in separated_basis]
 
         gt_m = gt_m.cpu()
 
         gt_xs = np.array([x.squeeze().view(-1) for x in gt_xs])
 
-        print('starting')
         sdr, isr, sir, sar, _ = mir_eval.separation.bss_eval_images(gt_xs, separated_basis)
-        print('done')
 
         total_sdr += sdr.mean()
 

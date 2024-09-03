@@ -18,7 +18,6 @@ dataset = MultiModalDataset('val', normalise=hps_video['normalise'], fps=hps_vid
 def rotate_image(image):
     return np.rot90(image, 2)
 
-
 def generate_video_separation_samples(num_samples=10):
     for sample_idx in range(num_samples):
         print(sample_idx)
@@ -34,13 +33,11 @@ def generate_video_separation_samples(num_samples=10):
 
         # separate using basis
         separated_basis = separate_video(gt_m, None,  hps_stems, hps_video, 'video_model_raft_resnet', sample['stem_names'],
-                                         alpha=1, visualise=False, verbose=False, gradient_weight=15,
-                                         constraint_term_weight=-15, device=device)
+                                         alpha=1, visualise=False, verbose=False, device=device)
         separated_basis = [x_i.detach().cpu().view((64, 64)) for x_i in separated_basis]
 
         separated_basis_video = separate_video(gt_m, video,  hps_stems, hps_video, 'video_model_raft_resnet', sample['stem_names'],
-                                         alpha=1, visualise=False, verbose=False, gradient_weight=15,
-                                         constraint_term_weight=-15, device=device, video_weight=1024)
+                                         alpha=1, visualise=False, verbose=False, device=device, video_weight=128)
         separated_basis_video = [x_i.detach().cpu().view((64, 64)) for x_i in separated_basis_video]
 
         gt_xs = np.array([x.detach().cpu().squeeze() for x in gt_xs])
@@ -74,3 +71,5 @@ def generate_video_separation_samples(num_samples=10):
             axes[i, 0].text(-0.2, 0.5, row_titles[i], va='center', ha='right', fontsize=12, transform=axes[i, 0].transAxes)
 
         plt.savefig(f'figures/rochester_separation_{sample_idx+1}.png', dpi=300, bbox_inches='tight')
+
+generate_video_separation_samples()

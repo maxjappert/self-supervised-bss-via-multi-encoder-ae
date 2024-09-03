@@ -19,7 +19,7 @@ def print_output(results, k, metric_idx, name, index):
     print()
 
 
-def experiment_video(name_video_model, num_samples=100, video_weight=1024, gradient_weight=15, device='cuda'):
+def experiment_video(name_video_model, num_samples=100, video_weight=1024, device='cuda'):
     k = 2
     image_h = 64
     image_w = 64
@@ -55,13 +55,11 @@ def experiment_video(name_video_model, num_samples=100, video_weight=1024, gradi
 
         # separate using basis
         separated_basis = separate_video(gt_m, None,  hps_stems, hps_video, name_video_model, sample['stem_names'],
-                                         alpha=1, visualise=False, verbose=False, gradient_weight=gradient_weight,
-                                         constraint_term_weight=-15, device=device)
+                                         alpha=1, visualise=False, verbose=False, device=device)
         separated_basis = [x_i.detach().cpu().view(-1) for x_i in separated_basis]
 
         separated_basis_video = separate_video(gt_m, video,  hps_stems, hps_video, name_video_model, sample['stem_names'],
-                                         alpha=1, visualise=False, verbose=False, gradient_weight=gradient_weight,
-                                         constraint_term_weight=-15, device=device, video_weight=video_weight)
+                                         alpha=1, visualise=False, verbose=False, device=device, video_weight=video_weight)
         separated_basis_video = [x_i.detach().cpu().view(-1) for x_i in separated_basis_video]
 
         gt_xs = np.array([x.squeeze().detach().cpu().view(-1) for x in gt_xs])
