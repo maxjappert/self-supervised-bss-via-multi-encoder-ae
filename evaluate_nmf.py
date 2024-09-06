@@ -13,11 +13,11 @@ import soundfile as sf
 from evaluation_metric_functions import compute_spectral_metrics
 from functions import evaluate_separation_ability, create_combined_image, metric_index_mapping
 
-def nmf_approx_two_sources(S_mix_gt):
+def nmf_approx_two_sources(S_mix_gt, beta_loss='frobenius', solver='cd'):
     if len(S_mix_gt.shape) == 3:
         S_mix_gt = np.mean(S_mix_gt, axis=2)
 
-    nmf = NMF(n_components=2, random_state=0)
+    nmf = NMF(n_components=2, random_state=0, beta_loss=beta_loss, solver='mu')
     W = nmf.fit_transform(S_mix_gt.cpu())
     H = nmf.components_
 

@@ -25,6 +25,8 @@ metrics = ['sdr', 'isr', 'sir', 'sar']
 for i, metric in enumerate(metrics):
     for result_type in results.keys():
         result = np.mean(results[result_type], axis=0)
-        print(f'{result_type} {metric}: {np.round(np.mean(result[i], axis=0), 1)} +- {np.round(np.std(result[i], axis=0), 1)}')
+        std_e = np.std(result[i], ddof=1) / np.sqrt(len(result[i]))
+
+        print(f'{result_type} {metric}: {np.round(np.mean(result[i], axis=0), 1)} +- {np.round(std_e, 2)}')
 
 

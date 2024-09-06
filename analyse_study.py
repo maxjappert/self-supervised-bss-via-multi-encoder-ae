@@ -16,8 +16,8 @@ print("Best hyperparameters: ", best_trial.params)
 # optuna.visualization.plot_contour(study, params=['param1', 'param2'])
 
 # Example: Optimization history
-fig = optuna.visualization.plot_optimization_history(study)
+fig = optuna.visualization.plot_contour(study)
 show(fig)
 
-import matplotlib.pyplot as plt
-plt.savefig('figures/optuna_ex1.png')  # Display the plots
+fig = optuna.visualization.plot_contour(study)
+

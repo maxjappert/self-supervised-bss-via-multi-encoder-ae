@@ -33,7 +33,9 @@ def audio_to_spectrogram(audio, name, save_to_file=False, dest_folder=None, from
 def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=False, sr=22050):
     # Load the spectrogram image
     if from_file:
-        img = Image.open(f'images/{spectrogram}').convert('L')
+        img = Image.open(f'{spectrogram}').convert('L')
+        if phase:
+            phase = np.load(phase)
         S_db_imported = np.array(img)
     else:
         S_db_imported = spectrogram * 255 if spectrogram.max() <= 1 else spectrogram
@@ -61,4 +63,8 @@ def spectrogram_to_audio(spectrogram, output_filename, phase=None, from_file=Fal
 
 
 #spectrogram, sr = audio_to_spectrogram('01_Jupiter_vn_vc/AuSep_1_vn_01_Jupiter.wav', save_to_file=True)
-#spectrogram_to_audio('spectrogram_AuSep_1_vn_01_Jupiter.png', 'sr_AuSep_1_vn_01_Jupiter.npy', 'aaa', from_file=True)
+# for dp in [1, 6, 94, 3]:
+#     for i in range(1, 5):
+#         file = f'stem{i}'
+#         spectrogram_to_audio(f'data/musdb_18_prior/train/datapoint{dp}/{file}.png', f'file{dp}_{i}', f'data/musdb_18_prior/train/datapoint{dp}/{file}_phase.npy', from_file=True)
+#

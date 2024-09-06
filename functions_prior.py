@@ -530,7 +530,7 @@ class VAE(nn.Module):
 
         return self.decode(z), mu, logvar
 
-    def log_prob(self, x):
+    def log_prob(self, x, normalise=True):
         recon, mu, logvar = self.forward(x)
 
         kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
@@ -538,7 +538,7 @@ class VAE(nn.Module):
         recon_loss = loss_fn(recon, x)
 
         elbo = -(recon_loss + kl_div)
-        return elbo / x.size(0)
+        return elbo / x.size(0) if normalise else elbo
 
 
 

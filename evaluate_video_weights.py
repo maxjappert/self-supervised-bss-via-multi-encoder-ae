@@ -6,6 +6,7 @@ from datetime import datetime
 import mir_eval
 import numpy as np
 import torch
+from jinja2.filters import do_round
 from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
@@ -27,11 +28,11 @@ def evaluate_video_weight(num_samples=10, name_video_model='video_model_raft_res
                'sir': 2,
                'sar': 3}
 
-    weights = [2**i for i in range(12)] # np.linspace(20, -20, num=40)
+    weights = [2**i for i in range(8)] # np.linspace(20, -20, num=40)
     basis = np.zeros((len(weights), 2, len(metrics.keys()), num_samples))
 
-    for weight_index, video_weight in enumerate(weights):
-        for i in range(num_samples):
+    for i in range(num_samples):
+        for weight_index, video_weight in enumerate(weights):
             while True:
                 sample = dataset[random.randint(0, len(dataset) - 1)]
                 if sample['label'] == 1:
@@ -58,12 +59,14 @@ def evaluate_video_weight(num_samples=10, name_video_model='video_model_raft_res
 
             basis[weight_index, :, :, i] = np.array([sdr, isr, sir, sar]).T
 
+    np.save(f'results/video_weights_evaluated.npy', weights)
+    np.save(f'results/video_weights.npy', basis)
+
+    for weight_index, video_weight in enumerate(weights):
         print(f'Weight: {video_weight}')
-        print(f'{round(np.mean(basis[weight_index, 0, metrics["sdr"], :]), 3)} +- {round(np.std(basis[weight_index, 0, metrics["sdr"], :]), 3)}')
-        print(f'{round(np.mean(basis[weight_index, 1, metrics["sdr"], :]), 3)} +- {round(np.std(basis[weight_index, 1, metrics["sdr"], :]), 3)}')
+        print(f'{round(np.mean(basis[weight_index, 0, metrics["sdr"], :]), 3)} +- {round(np.std(basis[weight_index, 0, metrics["sdr"], :], ddof=1), 3)}')
+        print(f'{round(np.mean(basis[weight_index, 1, metrics["sdr"], :]), 3)} +- {round(np.std(basis[weight_index, 1, metrics["sdr"], :], ddof=1), 3)}')
         print()
 
-        np.save(f'results/video_weights_evaluated.npy', weights)
-        np.save(f'results/video_weights.npy', basis)
 
-evaluate_video_weight(num_samples=30, device='cuda')
+# evaluate_video_weight(num_samples=50, device='cuda')
